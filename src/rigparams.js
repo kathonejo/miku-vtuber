@@ -4,6 +4,35 @@ import { clamp } from './filters.js';
 
 export const RIG_KEY = 'bunny-vtuber-rig-v1';
 
+let activeId = 'bunny';
+const saveListeners = new Set();
+
+/** La conejita oficial sigue en la clave antigua. El resto, clave por id. */
+export function rigStorageKey(id = activeId) {
+  if (!id || id === 'bunny') return RIG_KEY;
+  return `${RIG_KEY}:${id}`;
+}
+
+export function setRigCharacter(id) {
+  activeId = id || 'bunny';
+}
+
+export function currentRigCharacter() {
+  return activeId;
+}
+
+export function onRigSave(fn) {
+  if (typeof fn !== 'function') return () => {};
+  saveListeners.add(fn);
+  return () => saveListeners.delete(fn);
+}
+
+function notifySave(flat, id) {
+  for (const fn of saveListeners) {
+    try { fn(flat, id); } catch { /* el oyente no puede romper el guardado */ }
+  }
+}
+
 export const PART_LABELS = {
   hair_back: 'Pelo atrás',
   ear_r: 'Oreja conejo der.',
@@ -196,11 +225,11 @@ export function normalizeStore(data) {
   return { order: Array.isArray(data.order) ? data.order : null, parts };
 }
 
-export function loadOverrides() {
+export function loadOverrides(id) {
   const store = storage();
   if (!store) return { order: null, parts: {} };
   try {
-    const raw = store.getItem(RIG_KEY);
+    const raw = store.getItem(rigStorageKey(id));
     if (!raw) return { order: null, parts: {} };
     return normalizeStore(JSON.parse(raw));
   } catch {
@@ -208,24 +237,37 @@ export function loadOverrides() {
   }
 }
 
-export function saveOverrides(data) {
-  const store = storage();
-  if (!store) return false;
+export function packOverrides(data) {
   const norm = normalizeStore(data);
   const flat = { order: norm.order || [] };
   for (const [id, row] of Object.entries(norm.parts)) flat[id] = row;
+  return flat;
+}
+
+export function saveOverrides(data, id) {
+  const store = storage();
+  const who = id === undefined ? activeId : (id || 'bunny');
+  const flat = packOverrides(data);
+  if (!store) {
+    notifySave(flat, who);
+    return false;
+  }
   try {
-    store.setItem(RIG_KEY, JSON.stringify(flat));
+    store.setItem(rigStorageKey(who), JSON.stringify(flat));
+    notifySave(flat, who);
     return true;
   } catch {
     return false;
   }
 }
 
-export function clearOverrides() {
+export function clearOverrides(id) {
   const store = storage();
-  if (!store) return;
-  try { store.removeItem(RIG_KEY); } catch { /* sin almacenamiento */ }
+  const who = id === undefined ? activeId : (id || 'bunny');
+  if (store) {
+    try { store.removeItem(rigStorageKey(who)); } catch { /* sin almacenamiento */ }
+  }
+  notifySave({ order: [] }, who);
 }
 
 export function collectOverrides(parts) {

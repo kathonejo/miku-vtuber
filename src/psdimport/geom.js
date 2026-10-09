@@ -287,3 +287,20 @@ export function mapLayers(layers, psdWidth) {
     ...placed,
   };
 }
+
+/** Recalcula pivotes tras un cambio de rol, sin tocar la posición. */
+export function refreshPivots(layers, meta) {
+  const face = layers.find((layer) => layer.role === 'face' && !layer.hidden)
+    || layers.find((layer) => layer.role === 'face')
+    || null;
+  assignPivots(layers, face);
+  const scale = meta?.scale || 1;
+  const off = meta?.offset || [0, 0];
+  for (const layer of layers) {
+    if (!layer.pivotPsd) continue;
+    layer.pivot = [
+      round2((layer.pivotPsd.x - off[0]) / scale),
+      round2((layer.pivotPsd.y - off[1]) / scale),
+    ];
+  }
+}

@@ -1,9 +1,10 @@
 import { createActions } from './actions.js';
+import { createCharPanel } from './charpanel.js';
 import { finite } from './filters.js';
 import { composeManifest, importPsd } from './psdimport/read.js';
 import { createPuppet } from './puppet.js';
 import { createRigEditor } from './rigeditor.js';
-import { shakeTargets } from './rigparams.js';
+import { loadOverrides, shakeTargets } from './rigparams.js';
 import {
   ACCESSORY_DEFS,
   BACKGROUNDS,
@@ -563,6 +564,28 @@ export function mount(doc) {
     .catch(() => {
       if (!tracker.isRunning()) setStatus(MSG.modelsFail);
     });
+
+  const chars = createCharPanel(doc, {
+    toast,
+    stage,
+    async useManifest(manifest, overrides) {
+      await puppet.ready;
+      return puppet.loadManifest(manifest, { overrides });
+    },
+    async useBunny() {
+      await puppet.ready;
+      const base = import.meta.env?.BASE_URL || './';
+      const res = await fetch(`${base}bunny/rig.json`);
+      if (!res.ok) throw new Error('No pude cargar la conejita');
+      return puppet.loadManifest(await res.json(), { overrides: loadOverrides('bunny') });
+    },
+    onUsed() {
+      if (!rig.isOpen()) return;
+      const first = puppet.getManifest()?.parts?.find((part) => part && part.role !== 'mouth' && part.id !== 'mouth');
+      if (first) rig.select(first.id);
+    },
+  });
+  puppet.ready.then(() => chars.boot()).catch((err) => console.warn(err));
 
   requestAnimationFrame(frame);
   return { settings, puppet, tracker };
