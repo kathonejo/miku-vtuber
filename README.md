@@ -6,7 +6,8 @@ Marioneta **VTuber** de papel en el navegador. El dibujo de una chica conejo, re
 
 - Seguir la **cabeza** (giro, inclinación y rotación), el **parpadeo** (los dos ojos juntos; el guiño independiente es opcional), la **mirada**, la **boca** por visemas y los **brazos** (hombros y muñecas).
 - Elegir **Ojos A** u **Ojos B** (dos estilos del dibujo, no pasos del parpadeo) y lanzar gestos con las mangas (teclas 1–6).
-- Ajustar el pelo y las orejas en el panel **Rigging**.
+- Ajustar el pelo y las orejas en el panel **Rigging**, con pivote, **Sigue a** y un cuello opcional.
+- Cargar **tu propio personaje** desde un PSD (botón **Personajes**). La conejita oficial sigue disponible.
 - **Calibrar** la pose neutra con el botón Calibrar, o de forma automática durante el primer segundo y medio de cámara.
 - Modo **espejo** (activo por defecto): el avatar se mueve como un espejo. La vista previa de la webcam también.
 - **Modo demo** sin cámara: la marioneta respira, se balancea y parpadea sola. El ratón mueve la cabeza y la mirada; mantener pulsado abre la boca.
@@ -85,7 +86,60 @@ Elige una pieza en la lista o haz clic en el dibujo. Verás su caja en trazo tea
 
 **Exportar rig.json** descarga el manifiesto con tus ajustes ya escritos en cada pieza. **Importar** acepta ese archivo o un JSON de overrides. **Restablecer parte** y **Restablecer todo** vuelven a los valores del `rig.json` cargado (el total pide confirmación).
 
-Si exportas y sustituyes `public/bunny/rig.json`, los ajustes quedan para todo el mundo. En ese navegador pulsa **Restablecer todo** después, para no sumar otra vez lo que ya iba en el archivo. Los retoques de la sesión viven en `localStorage` (`bunny-vtuber-rig-v1`).
+Si exportas y sustituyes `public/bunny/rig.json`, los ajustes quedan para todo el mundo. En ese navegador pulsa **Restablecer todo** después, para no sumar otra vez lo que ya iba en el archivo. Los retoques de la conejita oficial viven en `localStorage` (`bunny-vtuber-rig-v1`). Cada personaje cargado usa su propia clave (`bunny-vtuber-rig-v1:<id>`) y también guarda esos retoques en su ficha.
+
+## Cargar tu propio personaje (PSD)
+
+El botón **Personajes** abre la biblioteca. **Conejita (oficial)** es el personaje incluido: se puede usar, no se puede borrar. El resto tiene **Usar**, **Renombrar** y **Borrar**.
+
+**Cargar personaje (PSD)** (o soltar un `.psd` en la zona, o sobre el escenario) lee el archivo en el navegador. Aparece **Asignar capas**: cada capa con su miniatura, el nombre y la ruta del grupo, y un rol. A la derecha, una vista previa que se actualiza al cambiar un rol. **Armar** construye la marioneta, la usa y la guarda. **Cancelar** vuelve sin cambiar el personaje en escena.
+
+El último personaje usado se recuerda y se abre al recargar. Si esa ficha falla, vuelve la conejita.
+
+Las fichas están en IndexedDB (`bunny-vtuber`, almacén `characters`): nombre, miniatura, capas en PNG, escala y los retoques de rigging.
+
+### Nombres que se reconocen
+
+Minúsculas, sin acentos, `_` como espacio. El lado izquierdo/derecho no se fía del nombre: lo decide el centro de la mancha respecto al centro del lienzo (izquierda de la pantalla = izq).
+
+| Nombre | Rol |
+| --- | --- |
+| `pelo atras` | Pelo de atrás |
+| `oreja` (+ izq/der) | Oreja de conejo |
+| `orejas` | Orejas humanas |
+| `mechon …` | Mechón que se mueve |
+| `flequillo` o `cabeza flequillo` | Flequillo |
+| `cabeza` o `cara` | Cara |
+| `cuerpo` | Cuerpo |
+| `cuello` | Cuello (capa) |
+| `boca`, `boca abierta`, `boca o`, `boca sonrisa` | Bocas |
+| `ojo izq/der A/B`, `blanco`, `iris`, `pupila`, `brillo`, `pestanas`, `ojo … cerrado` | Ojos |
+| `brazo`, `antebrazo`, `manga`/`mano` + saludo, corazon, paz, aplauso, senala, arriba | Mangas |
+
+Las capas ocultas llamadas `Capa …` dentro de un grupo oculto se saltan. Una capa oculta con un nombre conocido (por ejemplo el ojo B) se conserva.
+
+Si el nombre no dice nada, la posición respecto al personaje decide: arriba y estrecho → oreja; par pequeño y simétrico → ojos; mancha pequeña bajo los ojos → boca; abajo y grande → cuerpo; grande, ancha y detrás de la cara → pelo atrás; mitad superior → mechón; si no, estático.
+
+El personaje cabe en un rig de 600×600 (alto 546, centrado, tope a 25). Cada capa se recorta al alfa. Si el PSD es muy grande, se reduce para no pasar de 2,5 px por unidad.
+
+Si no hay capas de boca, se busca la boca pintada en la cara, se recorta y se generan las demás formas. Si no aparece, las bocas generadas van al 62 % de la altura de la cara. Si falta el ojo cerrado, se dibuja un arco de pestaña.
+
+## Puntos de giro y "Sigue a"
+
+En **Rigging**, la pieza elegida tiene un solo **punto de giro** (el asidero que ya se arrastra). **Sigue a** elige de quién cuelga: **Cuerpo**, **Cabeza** u otra pieza (un mechón puede seguir a una oreja o a otro mechón). No se permiten ciclos.
+
+El balanceo de la pieza se aplica alrededor de su pivote, dentro del movimiento completo del padre (incluido el balanceo del padre). Lo que cuelga de la cabeza —cara, flequillo, ojos, boca, orejas, mechones, accesorios de cabeza— sigue a **Cabeza** por defecto. El cuerpo y lo que va con él siguen a **Cuerpo**. El padre se guarda con el personaje y viaja en el `rig.json` exportado.
+
+## Cuello
+
+En **Rigging**, la sección **Cuello** tiene:
+
+- **Tiene cuello**: apagado por defecto. La conejita oficial no cambia hasta que lo actives.
+- **Largo del cuello** (0–30): sube todo el grupo de la cabeza.
+- **Estirar al moverse** (0–1): el cuello crece cuando la cabeza sube o va hacia delante y se aplasta al caer el rebote.
+- **Punto del cuello**: el asidero naranja. Es el pivote de giro de la cabeza.
+
+Con el cuello activo, la cabeza gira sobre ese punto. Si el PSD trae una capa `cuello`, se estira para tapar el hueco. Si no, se dibuja un cuello del color de la cara (un poco más estrecho que la cara, con sombra bajo la barbilla y perfil azul). Al girar, la parte de arriba acompaña a la cabeza y la de abajo se queda en el cuerpo. Queda detrás del cuello de la ropa: justo antes del cuerpo, o antes de la cara si el cuerpo se pinta después. El ajuste se guarda con el personaje.
 
 ## Capas de brazos y mangas en el PSD
 

@@ -36,29 +36,37 @@ function neckPart(manifest) {
   return (manifest?.parts || []).find((part) => part && (part.role === 'neck' || part.id === 'neck') && part.file);
 }
 
-export function paintNeck(ctx, manifest, lift, getImage) {
+function headNudge(view) {
+  const yaw = Number(view?.yaw) || 0;
+  const pitch = Number(view?.pitch) || 0;
+  return { x: clamp(yaw * 9, -9, 9), y: clamp(pitch * 9, -9, 9) };
+}
+
+export function paintNeck(ctx, manifest, lift, getImage, view) {
   const pivot = manifest?.pivots?.neck;
   if (!pivot) return;
-  const top = pivot.y - (lift || 0);
+  const nudge = headNudge(view);
+  const top = pivot.y - (lift || 0) + nudge.y;
   const bot = pivot.y + 10;
   const height = Math.max(6, bot - top);
   const mapped = neckPart(manifest);
   const img = mapped && getImage ? getImage(mapped.file) : null;
   if (img && mapped.w > 0) {
-    ctx.drawImage(img, mapped.x, top, mapped.w, height);
+    ctx.drawImage(img, mapped.x + nudge.x * 0.45, top, mapped.w, height);
     return;
   }
   const face = manifest.byId?.face;
   const width = Math.max(16, (face?.w || 150) * 0.22);
-  const topW = width * 0.82;
+  const topW = width * 0.78;
   const x = pivot.x;
+  const tx = x + nudge.x;
   const y0 = top;
-  const y1 = top + height;
+  const y1 = bot;
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(x - topW / 2, y0 + 3);
-  ctx.quadraticCurveTo(x - topW / 2, y0, x, y0);
-  ctx.quadraticCurveTo(x + topW / 2, y0, x + topW / 2, y0 + 3);
+  ctx.moveTo(tx - topW / 2, y0 + 3);
+  ctx.quadraticCurveTo(tx - topW / 2, y0, tx, y0);
+  ctx.quadraticCurveTo(tx + topW / 2, y0, tx + topW / 2, y0 + 3);
   ctx.lineTo(x + width / 2, y1);
   ctx.quadraticCurveTo(x, y1 + 3, x - width / 2, y1);
   ctx.closePath();
@@ -67,16 +75,16 @@ export function paintNeck(ctx, manifest, lift, getImage) {
   ctx.save();
   ctx.clip();
   ctx.fillStyle = 'rgba(150,60,60,.25)';
-  ctx.fillRect(x - width, y0, width * 2, Math.min(9, height * 0.28));
+  ctx.fillRect(tx - width, y0, width * 2, Math.min(9, height * 0.28));
   ctx.restore();
   ctx.strokeStyle = '#0a4a84';
   ctx.lineWidth = 1.7;
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(x - topW / 2 + 0.6, y0 + 4);
-  ctx.quadraticCurveTo(x - width / 2 - 1, (y0 + y1) / 2, x - width / 2 + 0.4, y1 - 1);
-  ctx.moveTo(x + topW / 2 - 0.6, y0 + 4);
-  ctx.quadraticCurveTo(x + width / 2 + 1, (y0 + y1) / 2, x + width / 2 - 0.4, y1 - 1);
+  ctx.moveTo(tx - topW / 2 + 0.6, y0 + 4);
+  ctx.quadraticCurveTo((tx + x) / 2 - width / 2 - 1, (y0 + y1) / 2, x - width / 2 + 0.4, y1 - 1);
+  ctx.moveTo(tx + topW / 2 - 0.6, y0 + 4);
+  ctx.quadraticCurveTo((tx + x) / 2 + width / 2 + 1, (y0 + y1) / 2, x + width / 2 - 0.4, y1 - 1);
   ctx.stroke();
   ctx.restore();
 }

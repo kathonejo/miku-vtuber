@@ -1545,7 +1545,8 @@ export function createPuppet(canvas) {
     const place = state.place || { scale: 1, ox: 0, oy: 0 };
     let p = invJump({ x: (cssX - place.ox) / place.scale, y: (cssY - place.oy) / place.scale });
     p = invBody(p);
-    return { x: p.x, y: p.y + headLift() };
+    const h = headScale();
+    return { x: p.x - h.offX, y: p.y + headLift() - h.offY };
   }
 
   function invLocal(p, part) {
@@ -1642,7 +1643,7 @@ export function createPuppet(canvas) {
       if (neckAt && part.id === neckAt) {
         ctx.save();
         applyBody();
-        paintNeck(ctx, m, headLift(), (file) => sourceOf(file));
+        paintNeck(ctx, m, headLift(), (file) => sourceOf(file), state.view);
         ctx.restore();
       }
       if (m.neck?.enabled && (part.role === 'neck' || part.id === 'neck')) continue;
@@ -1707,20 +1708,22 @@ export function createPuppet(canvas) {
 
     if (state.neckHandle && m.neck?.enabled) {
       const n = m.pivots.neck;
-      const y = n.y - headLift();
+      const h = headScale();
+      const x = n.x + h.offX;
+      const y = n.y - headLift() + h.offY;
       ctx.save();
       applyBody();
       ctx.beginPath();
-      ctx.arc(n.x, y, 7, 0, Math.PI * 2);
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255, 176, 32, 0.95)';
       ctx.fill();
       ctx.strokeStyle = '#062028';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(n.x - 12, y);
-      ctx.lineTo(n.x + 12, y);
-      ctx.moveTo(n.x, y - 12);
-      ctx.lineTo(n.x, y + 12);
+      ctx.moveTo(x - 12, y);
+      ctx.lineTo(x + 12, y);
+      ctx.moveTo(x, y - 12);
+      ctx.lineTo(x, y + 12);
       ctx.stroke();
       ctx.restore();
     }
