@@ -36,6 +36,17 @@ export function bakePart(part) {
 export function exportManifest(raw, manifest) {
   const base = raw && typeof raw === 'object' ? structuredClone(raw) : {};
   base.parts = manifest.parts.map((part) => bakePart(part));
+  if (manifest.neck) {
+    base.neck = {
+      enabled: Boolean(manifest.neck.enabled),
+      length: Number(manifest.neck.length) || 0,
+      stretch: Number(manifest.neck.stretch) || 0,
+    };
+  }
+  if (manifest.pivots?.neck) {
+    base.pivots = base.pivots || {};
+    base.pivots.neck = [manifest.pivots.neck.x, manifest.pivots.neck.y];
+  }
   return base;
 }
 
@@ -54,7 +65,14 @@ export function parseRigImport(data) {
         rot: part.rotation,
         visible: part.visible,
         pivot: part.pivot,
+        parent: part.parent,
         ...(part.motion && typeof part.motion === 'object' ? part.motion : {}),
+      };
+    }
+    if (data.neck && typeof data.neck === 'object') {
+      overrides._neck = {
+        ...data.neck,
+        pivot: data.pivots?.neck || data.neck.pivot || null,
       };
     }
     if (!overrides.order.length) return { ok: false, error: 'El rig no tiene piezas.' };

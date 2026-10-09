@@ -204,25 +204,39 @@ function pivotOf(raw) {
   return null;
 }
 
+function neckOf(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const pivot = pivotOf(raw.pivot);
+  return {
+    enabled: Boolean(raw.enabled),
+    length: num(raw.length, 0, 0, 30),
+    stretch: num(raw.stretch, 0, 0, 1),
+    pivot,
+  };
+}
+
 export function applyPartOverride(part, raw) {
   if (!part || !raw || typeof raw !== 'object') return;
   const pivot = pivotOf(raw.pivot);
   if (pivot) part.pivot = pivot;
+  if (typeof raw.parent === 'string' && raw.parent && raw.parent !== part.id) part.parent = raw.parent;
   part.rig = sanitizeRig({ ...part.rig, ...raw }, part);
 }
 
 export function normalizeStore(data) {
-  const empty = { order: null, parts: {} };
+  const empty = { order: null, parts: {}, neck: null };
   if (!data || typeof data !== 'object' || Array.isArray(data)) return empty;
+  const neck = neckOf(data._neck || data.neck);
   if (data.parts && typeof data.parts === 'object' && !Array.isArray(data.parts)) {
-    return { order: Array.isArray(data.order) ? data.order : null, parts: { ...data.parts } };
+    return { order: Array.isArray(data.order) ? data.order : null, parts: { ...data.parts }, neck };
   }
   const parts = {};
   for (const [key, value] of Object.entries(data)) {
-    if (key === 'order' || !value || typeof value !== 'object' || Array.isArray(value)) continue;
+    if (key === 'order' || key === '_neck' || key === 'neck' || key === 'parts') continue;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
     parts[key] = value;
   }
-  return { order: Array.isArray(data.order) ? data.order : null, parts };
+  return { order: Array.isArray(data.order) ? data.order : null, parts, neck };
 }
 
 export function loadOverrides(id) {
@@ -240,6 +254,7 @@ export function loadOverrides(id) {
 export function packOverrides(data) {
   const norm = normalizeStore(data);
   const flat = { order: norm.order || [] };
+  if (norm.neck) flat._neck = norm.neck;
   for (const [id, row] of Object.entries(norm.parts)) flat[id] = row;
   return flat;
 }
@@ -276,6 +291,7 @@ export function collectOverrides(parts) {
     const rig = part.rig || emptyRig(part);
     const row = { ...rig };
     if (Array.isArray(part.pivot)) row.pivot = [+part.pivot[0], +part.pivot[1]];
+    if (typeof part.parent === 'string') row.parent = part.parent;
     out[part.id] = row;
   }
   return out;
@@ -289,6 +305,15 @@ export function applyOverrides(manifest, data) {
     const raw = norm.parts[part.id];
     if (raw && typeof raw === 'object') applyPartOverride(part, raw);
   }
+  if (norm.neck && manifest.neck) {
+    manifest.neck.enabled = norm.neck.enabled;
+    manifest.neck.length = norm.neck.length;
+    manifest.neck.stretch = norm.neck.stretch;
+    if (norm.neck.pivot && manifest.pivots?.neck) {
+      manifest.pivots.neck.x = norm.neck.pivot[0];
+      manifest.pivots.neck.y = norm.neck.pivot[1];
+    }
+  }
   return manifest;
 }
 
@@ -297,8 +322,15 @@ export function captureBase(manifest) {
     order: manifest.parts.map((p) => p.id),
     parts: Object.fromEntries(manifest.parts.map((p) => [p.id, {
       pivot: Array.isArray(p.pivot) ? [+p.pivot[0], +p.pivot[1]] : null,
+      parent: typeof p.parent === 'string' ? p.parent : null,
       rig: { ...(p.rig || emptyRig(p)) },
     }])),
+    neck: manifest.neck ? {
+      enabled: Boolean(manifest.neck.enabled),
+      length: Number(manifest.neck.length) || 0,
+      stretch: Number(manifest.neck.stretch) || 0,
+      pivot: manifest.pivots?.neck ? [manifest.pivots.neck.x, manifest.pivots.neck.y] : null,
+    } : null,
   };
 }
 
@@ -318,6 +350,16 @@ export function restoreBase(manifest, base) {
     if (!saved) continue;
     part.rig = { ...saved.rig };
     if (saved.pivot) part.pivot = [saved.pivot[0], saved.pivot[1]];
+    if (typeof saved.parent === 'string') part.parent = saved.parent;
+  }
+  if (base.neck && manifest.neck) {
+    manifest.neck.enabled = Boolean(base.neck.enabled);
+    manifest.neck.length = Number(base.neck.length) || 0;
+    manifest.neck.stretch = Number(base.neck.stretch) || 0;
+    if (base.neck.pivot && manifest.pivots?.neck) {
+      manifest.pivots.neck.x = base.neck.pivot[0];
+      manifest.pivots.neck.y = base.neck.pivot[1];
+    }
   }
   return manifest;
 }

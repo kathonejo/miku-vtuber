@@ -1,6 +1,7 @@
 /** Panel de rigging: pivote, pose y movimiento del pelo. */
 
 import { exportManifest, parseRigImport } from './rigio.js';
+import { attachRigLinks } from './riglinks.js';
 import {
   clearOverrides,
   emptyRig,
@@ -38,6 +39,7 @@ export function createRigEditor(doc, puppet, toast) {
   let selected = 'strand_r';
   let dragging = false;
   let built = false;
+  let links = null;
 
   function say(message) {
     if (typeof toast === 'function' && message) toast(message);
@@ -137,6 +139,7 @@ export function createRigEditor(doc, puppet, toast) {
     body.addEventListener('input', onInput);
     body.addEventListener('change', onInput);
     body.addEventListener('click', onClick);
+    links?.mount();
     built = true;
   }
 
@@ -243,6 +246,7 @@ export function createRigEditor(doc, puppet, toast) {
     const preview = body.querySelector('#rig-preview');
     if (preview) preview.setAttribute('aria-pressed', String(previewOn));
     puppet.setHighlight(opened ? item.id : null);
+    links?.sync();
   }
 
   function select(id) {
@@ -288,10 +292,16 @@ export function createRigEditor(doc, puppet, toast) {
     if (backdrop && !layout.classList.contains('panel-open')) backdrop.hidden = true;
     doc.getElementById('btn-rig')?.setAttribute('aria-expanded', 'false');
     puppet.setHighlight(null);
+    puppet.setNeckHandle?.(false);
   }
 
   function onPointerDown(event) {
     if (!opened) return false;
+    if (links?.wants(event)) {
+      links.begin();
+      dragging = true;
+      return true;
+    }
     const pt = point(event);
     if (selected && nearPivot(pt)) {
       dragging = true;
@@ -303,6 +313,10 @@ export function createRigEditor(doc, puppet, toast) {
   }
 
   function onPointerMove(event) {
+    if (links?.dragging()) {
+      links.move(event);
+      return;
+    }
     if (!dragging || !selected) return;
     const pt = point(event);
     const parent = puppet.parentPoint(pt.x, pt.y, selected);
@@ -312,8 +326,20 @@ export function createRigEditor(doc, puppet, toast) {
   }
 
   function onPointerUp() {
+    links?.end();
     dragging = false;
   }
+
+  links = attachRigLinks({
+    doc,
+    body,
+    puppet,
+    say,
+    getSelected: () => selected,
+    commit,
+    store,
+    isOpen: () => opened,
+  });
 
   return {
     open,

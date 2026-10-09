@@ -1,6 +1,8 @@
 import { createSleeves } from './arms.js';
 import { createEyePainter, resolveStyle, stepEyeOpen, collectEyeFiles } from './eyes.js';
 import { clamp, finite, hash01, Spring1D } from './filters.js';
+import { neckAnchorId, neckLiftAmount, paintNeck } from './neckdraw.js';
+import { resolveChain } from './rigchain.js';
 import {
   applyOverrides as applyRigData,
   captureBase,
@@ -944,6 +946,7 @@ export function createPuppet(canvas) {
     baseParts: [],
     rigStore: { order: null, parts: {} },
     highlight: null,
+    neckHandle: false,
     eyeStyle: 'A',
     delay: {},
     alpha: new Map(),
@@ -1302,9 +1305,15 @@ export function createPuppet(canvas) {
     ctx.translate(-feet.x, -feet.y);
   }
 
+  function headLift() {
+    return neckLiftAmount(state.manifest.neck, state.view);
+  }
+
   function applyHead() {
     const { neck } = state.manifest.pivots;
     const view = state.view;
+    const lift = headLift();
+    if (lift) ctx.translate(0, -lift);
     const sx = clamp(1 - 0.14 * Math.abs(view.yaw), 0.86, 1);
     const sy = clamp(1 - 0.06 * Math.abs(view.pitch), 0.94, 1);
     const skew = clamp(view.yaw * 0.06, -0.06, 0.06);
@@ -1424,10 +1433,16 @@ export function createPuppet(canvas) {
     ctx.restore();
   }
 
+  function applyParents(part) {
+    applyBody();
+    const chain = resolveChain(part, state.manifest.byId);
+    if (chain.head) applyHead();
+    for (let i = chain.locals.length - 1; i >= 0; i -= 1) applyLocal(chain.locals[i]);
+  }
+
   function wrapPart(part, draw) {
     ctx.save();
-    applyBody();
-    if (part.parent === 'head' || part.role === 'eye' || part.role === 'mouth') applyHead();
+    applyParents(part);
     draw();
     ctx.restore();
   }
@@ -1503,10 +1518,13 @@ export function createPuppet(canvas) {
     const neck = state.manifest.pivots.neck;
     const view = state.view;
     const h = headScale();
+    const lift = headLift();
+    const x = p.x;
+    const y = p.y + lift;
     const co = Math.cos(view.rollRad);
     const si = Math.sin(view.rollRad);
-    const dx = p.x - neck.x - h.offX;
-    const dy = p.y - neck.y - h.offY;
+    const dx = x - neck.x - h.offX;
+    const dy = y - neck.y - h.offY;
     const rx = co * dx + si * dy;
     const ry = -si * dx + co * dy;
     const lx = rx / (h.sx || 1);
@@ -1517,8 +1535,17 @@ export function createPuppet(canvas) {
     const place = state.place || { scale: 1, ox: 0, oy: 0 };
     let p = invJump({ x: (cssX - place.ox) / place.scale, y: (cssY - place.oy) / place.scale });
     p = invBody(p);
-    if (onHead(part)) p = invHead(p);
+    const chain = resolveChain(part, state.manifest.byId);
+    if (chain.head) p = invHead(p);
+    for (const anc of chain.locals) p = invLocal(p, anc);
     return p;
+  }
+
+  function neckSpace(cssX, cssY) {
+    const place = state.place || { scale: 1, ox: 0, oy: 0 };
+    let p = invJump({ x: (cssX - place.ox) / place.scale, y: (cssY - place.oy) / place.scale });
+    p = invBody(p);
+    return { x: p.x, y: p.y + headLift() };
   }
 
   function invLocal(p, part) {
@@ -1610,7 +1637,15 @@ export function createPuppet(canvas) {
     }
 
     const drawnEyes = { eye_l: false, eye_r: false };
+    const neckAt = m.neck?.enabled ? neckAnchorId(m.parts) : null;
     for (const part of m.parts) {
+      if (neckAt && part.id === neckAt) {
+        ctx.save();
+        applyBody();
+        paintNeck(ctx, m, headLift(), (file) => sourceOf(file));
+        ctx.restore();
+      }
+      if (m.neck?.enabled && (part.role === 'neck' || part.id === 'neck')) continue;
       const hidden = part.rig && part.rig.visible === false;
       if (hidden && state.highlight !== part.id) continue;
       if (part.role === 'mouth') {
@@ -1646,7 +1681,7 @@ export function createPuppet(canvas) {
         applyLocal(part);
         if (!hidden && part.file) {
           if (useShadow) paintShadow(part);
-          if (useEdge && part.parent === 'head') paintEdge(part, edgeOx, edgeAlpha);
+          if (useEdge && resolveChain(part, m.byId).head) paintEdge(part, edgeOx, edgeAlpha);
           paintImage(part);
           if (part.id === 'ear_r' && acc.bow) drawBow(ctx, part);
         }
@@ -1669,6 +1704,26 @@ export function createPuppet(canvas) {
     if (acc.blush) drawBlush(ctx, m.pivots);
     if (acc.sparkles) drawSparkles(ctx, state.time, m.pivots);
     ctx.restore();
+
+    if (state.neckHandle && m.neck?.enabled) {
+      const n = m.pivots.neck;
+      const y = n.y - headLift();
+      ctx.save();
+      applyBody();
+      ctx.beginPath();
+      ctx.arc(n.x, y, 7, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 176, 32, 0.95)';
+      ctx.fill();
+      ctx.strokeStyle = '#062028';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(n.x - 12, y);
+      ctx.lineTo(n.x + 12, y);
+      ctx.moveTo(n.x, y - 12);
+      ctx.lineTo(n.x, y + 12);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     ctx.save();
     applyBody();
@@ -1851,6 +1906,19 @@ export function createPuppet(canvas) {
     },
     setHighlight(id) {
       state.highlight = id || null;
+    },
+    setNeckHandle(on) {
+      state.neckHandle = Boolean(on);
+    },
+    nearNeckHandle(cssX, cssY) {
+      if (!state.manifest.neck?.enabled) return false;
+      const p = neckSpace(cssX, cssY);
+      const n = state.manifest.pivots.neck;
+      const tol = 16 / (state.place?.scale || 1);
+      return Math.hypot(p.x - n.x, p.y - n.y) <= tol;
+    },
+    neckFromCss(cssX, cssY) {
+      return neckSpace(cssX, cssY);
     },
     getManifest() {
       return state.manifest;
