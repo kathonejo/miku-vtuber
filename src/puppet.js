@@ -63,14 +63,18 @@ function assetUrl(file) {
 }
 
 function loadImage(file) {
+  return loadImageSrc(assetUrl(file), file);
+}
+
+function loadImageSrc(src, label = src) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => {
-      console.warn(`No se pudo cargar ${file}`);
+      console.warn(`No se pudo cargar ${label}`);
       resolve(img);
     };
-    img.src = assetUrl(file);
+    img.src = src;
   });
 }
 
@@ -112,6 +116,8 @@ function emptyManifest() {
     eyeSlot: { eye_l: null, eye_r: null },
     eyes: { l: null, r: null },
     eyeStyles: ['A', 'B'],
+    skin: null,
+    neck: { enabled: false, length: 0, stretch: 0 },
     arms: {
       parts: {},
       shoulders: {
@@ -170,6 +176,13 @@ function normalizeManifest(json) {
     if (json.arms.parts && typeof json.arms.parts === 'object') m.arms.parts = json.arms.parts;
     m.arms.hasCustom = Boolean(json.arms.hasCustom) && Object.keys(m.arms.parts).length > 0;
   }
+  if (Array.isArray(json.skin) && json.skin.length >= 3) m.skin = json.skin.slice(0, 3).map((n) => finite(n, 0));
+  const neck = json.neck && typeof json.neck === 'object' ? json.neck : null;
+  m.neck = {
+    enabled: Boolean(neck?.enabled),
+    length: finite(neck?.length, 0),
+    stretch: finite(neck?.stretch, 0),
+  };
   return m;
 }
 
@@ -1747,8 +1760,72 @@ export function createPuppet(canvas) {
     state.loaded = true;
   });
 
+  function takeImage(entry, bag, hint) {
+    if (!entry || typeof entry !== 'object') return;
+    if (entry.image) {
+      if (typeof entry.file !== 'string' || !entry.file) entry.file = hint;
+      bag[entry.file] = entry.image;
+    } else if (typeof entry.url === 'string' && entry.url && !entry.file) {
+      entry.file = entry.url;
+    }
+  }
+
+  async function loadManifest(json, options = {}) {
+    const bag = {};
+    state.source = json;
+    state.manifest = normalizeManifest(json);
+    const m = state.manifest;
+    m.parts.forEach((part, index) => takeImage(part, bag, `mem/part_${index}.png`));
+    Object.entries(m.mouths || {}).forEach(([key, entry]) => takeImage(entry, bag, `mem/mouth_${key}.png`));
+    Object.entries(m.extras || {}).forEach(([key, entry]) => takeImage(entry, bag, `mem/extra_${key}.png`));
+    Object.entries(m.arms?.parts || {}).forEach(([key, entry]) => takeImage(entry, bag, `mem/arm_${key}.png`));
+    for (const side of ['l', 'r']) {
+      const eye = m.eyes?.[side];
+      if (!eye) continue;
+      takeImage(eye.closed, bag, `mem/eye_${side}_closed.png`);
+      Object.entries(eye.styles || {}).forEach(([style, pack]) => {
+        Object.entries(pack || {}).forEach(([name, entry]) => {
+          takeImage(entry, bag, `mem/eye_${side}_${name}_${style}.png`);
+        });
+      });
+    }
+    const files = collectFiles(m);
+    await Promise.all(files.map(async (file) => {
+      if (bag[file]) return;
+      const remote = /^(blob:|data:|https?:)/.test(file);
+      bag[file] = remote ? await loadImageSrc(file) : await loadImage(file);
+    }));
+    state.images = bag;
+    state.soft = {};
+    state.paper = {};
+    state.baked = null;
+    state.bakedStyle = 'original';
+    state.alpha = new Map();
+    state.delay = {};
+    for (const key of Object.keys(partSprings)) delete partSprings[key];
+    state.mouthId = 'neutral';
+    state.mouthPrev = 'neutral';
+    state.mouthFade = 1;
+    state.pending = null;
+    state.pendingN = 0;
+    state.highlight = null;
+    state.eye.eye_l = { id: 'open', prev: 'open', fade: 1 };
+    state.eye.eye_r = { id: 'open', prev: 'open', fade: 1 };
+    for (const part of m.parts) stampPart(part);
+    state.base = captureBase(m);
+    state.rigStore = options.overrides || null;
+    if (options.overrides) applyRigData(m, options.overrides);
+    reindex();
+    sleeves.bind(m);
+    bakeCaches();
+    initSprings();
+    state.loaded = true;
+    return m;
+  }
+
   return {
     ready,
+    loadManifest,
     update,
     draw,
     resize,

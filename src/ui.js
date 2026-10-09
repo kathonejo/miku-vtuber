@@ -1,5 +1,6 @@
 import { createActions } from './actions.js';
 import { finite } from './filters.js';
+import { composeManifest, importPsd } from './psdimport/read.js';
 import { createPuppet } from './puppet.js';
 import { createRigEditor } from './rigeditor.js';
 import { shakeTargets } from './rigparams.js';
@@ -74,9 +75,24 @@ export function mount(doc) {
     debugTargets = obj && typeof obj === 'object' ? obj : null;
   }
 
+  let psdMapping = null;
   const api = {
     setDebugTargets,
     ready: puppet.ready,
+    async importPsd(arrayBuffer, filename) {
+      psdMapping = await importPsd(arrayBuffer, filename);
+      return psdMapping;
+    },
+    async buildFromMapping(next) {
+      const mapping = next || psdMapping;
+      if (!mapping) return null;
+      psdMapping = mapping;
+      await puppet.ready;
+      return puppet.loadManifest(composeManifest(mapping));
+    },
+    getPsdMapping() {
+      return psdMapping;
+    },
     action(name) {
       return actions.trigger(name);
     },
