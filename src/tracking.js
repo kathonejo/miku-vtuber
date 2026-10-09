@@ -11,7 +11,6 @@ import {
   clamp,
   expApproach,
   finite,
-  smoothstep,
 } from './filters.js';
 
 /** Coincide con @mediapipe/tasks-vision instalado (1.1.0). */
@@ -105,75 +104,54 @@ function pointOk(p) {
   return true;
 }
 
-function eyeOpenness(lm, upper, lower, c1, c2) {
-  const w = dist2(lm[c1], lm[c2]);
-  const h = dist2(lm[upper], lm[lower]);
-  if (!(w > 1e-4)) return 0;
-  return h / w;
+/**
+ * MediaPipe nombra el parpadeo desde la persona (eyeBlinkLeft = su ojo izquierdo).
+ * Con espejo, su izquierda cae a la izquierda de la pantalla (eye_l).
+ * Sin espejo, la imagen cruda pone su izquierda a la derecha de la pantalla.
+ */
+function screenBlinks(blends, mirror) {
+  const blinkRight = score(blends, 'eyeBlinkRight');
+  const blinkLeft = score(blends, 'eyeBlinkLeft');
+  if (mirror) return { blinkL: blinkLeft, blinkR: blinkRight };
+  return { blinkL: blinkRight, blinkR: blinkLeft };
 }
 
-function eyeCenterX(lm, c1, c2) {
-  if (!lm[c1] || !lm[c2]) return null;
-  return (lm[c1].x + lm[c2].x) / 2;
+const BLINK_CLOSED_REF = 0.75;
+const BLINK_OPEN_INIT = 0.08;
+
+/** Línea base de ojo abierto: sube despacio (0.05/s) y baja más rápido (0.5/s). */
+function followOpen(base, raw, dt) {
+  if (!(raw < base + 0.12)) return base;
+  const rate = raw > base ? 0.05 : 0.5;
+  const step = rate * Math.max(0, dt);
+  const delta = raw - base;
+  if (delta > step) return base + step;
+  if (delta < -step) return base - step;
+  return base + delta;
+}
+
+function normBlink(raw, base) {
+  const denom = Math.max(0.3, BLINK_CLOSED_REF - base);
+  return clamp((raw - base) / denom, 0, 1);
+}
+
+function pole(prev, x, dt, tau) {
+  const a = 1 - Math.exp(-Math.max(0, dt) / Math.max(1e-4, tau));
+  const y = prev + (x - prev) * a;
+  return Number.isFinite(y) ? y : x;
 }
 
 /**
- * Asigna cada blendshape de parpadeo al ojo de la pantalla.
- * El lado se decide midiendo la apertura en la imagen (párpados / ancho)
- * y la x cruda: el ojo con menor x aparece a la DERECHA en la vista espejada
- * y mueve eye_r del avatar. Si ambos parpadean a menos de 0.15, se promedia
- * para no inventar un guiño.
+ * Zona muerta y histéresis. Cerrado = 1. Abierto = guiño parcial, nunca cierre total.
+ * `v` ya va multiplicado por la sensibilidad.
  */
-function screenBlinks(lm, blends, mirror) {
-  const blinkRight = score(blends, 'eyeBlinkRight');
-  const blinkLeft = score(blends, 'eyeBlinkLeft');
-  let blinkSmall = blinkRight;
-  let blinkLarge = blinkLeft;
-
-  if (lm && lm.length > 386) {
-    const openA = eyeOpenness(lm, 159, 145, 33, 133);
-    const openB = eyeOpenness(lm, 386, 374, 362, 263);
-    const xA = eyeCenterX(lm, 33, 133);
-    const xB = eyeCenterX(lm, 362, 263);
-    let blinkA = blinkRight;
-    let blinkB = blinkLeft;
-    const blinkDiff = blinkA - blinkB;
-    const openDiff = openB - openA;
-    if (
-      Math.abs(blinkDiff) > 0.15
-      && Math.abs(openA - openB) > 0.015
-      && Math.sign(blinkDiff) !== Math.sign(openDiff)
-    ) {
-      blinkA = blinkLeft;
-      blinkB = blinkRight;
-    }
-    if (xA == null || xB == null) {
-      blinkSmall = blinkA;
-      blinkLarge = blinkB;
-    } else if (xA <= xB) {
-      blinkSmall = blinkA;
-      blinkLarge = blinkB;
-    } else {
-      blinkSmall = blinkB;
-      blinkLarge = blinkA;
-    }
-  }
-
-  let blinkR;
-  let blinkL;
-  if (mirror) {
-    blinkR = blinkSmall;
-    blinkL = blinkLarge;
-  } else {
-    blinkL = blinkSmall;
-    blinkR = blinkLarge;
-  }
-  if (Math.abs(blinkL - blinkR) < 0.15) {
-    const avg = (blinkL + blinkR) / 2;
-    blinkL = avg;
-    blinkR = avg;
-  }
-  return { blinkL, blinkR };
+function shapeBlink(v, closed) {
+  const x = v < 0.2 ? 0 : v;
+  let next = closed;
+  if (!closed && x > 0.62) next = true;
+  else if (closed && x < 0.38) next = false;
+  if (next) return { closed: true, out: 1 };
+  return { closed: false, out: clamp((x - 0.2) / 0.6, 0, 1) * 0.45 };
 }
 
 function irisGazeX(lm, iris, c1, c2) {
@@ -220,8 +198,6 @@ function tuneEuro(filter, minCutoff, beta, smoothing) {
 function mouthRates(smoothing) {
   const s = clamp(finite(smoothing, 0.35), 0, 1);
   return {
-    blinkAttack: 70 - 40 * s,
-    blinkRelease: 14 - 8 * s,
     mouthAttack: 55 - 30 * s,
     mouthRelease: 16 - 8 * s,
   };
@@ -386,8 +362,15 @@ export function createTracker(video, onStatus) {
   const rollF = new OneEuroFilter(1.2, 0.6, 1);
   const gazeXF = new OneEuroFilter(1.5, 1, 1);
   const gazeYF = new OneEuroFilter(1.5, 1, 1);
-  const blinkLF = new AttackRelease(60, 12);
-  const blinkRF = new AttackRelease(60, 12);
+  const blinkLF = new AttackRelease(45, 18);
+  const blinkRF = new AttackRelease(45, 18);
+  let openL = BLINK_OPEN_INIT;
+  let openR = BLINK_OPEN_INIT;
+  let nSmoothL = 0;
+  let nSmoothR = 0;
+  let winkHold = 0;
+  let eyeClosedL = false;
+  let eyeClosedR = false;
   const jawF = new AttackRelease(48, 14);
   const funnelF = new AttackRelease(48, 14);
   const puckerF = new AttackRelease(48, 14);
@@ -421,6 +404,13 @@ export function createTracker(video, onStatus) {
     gazeYF.reset();
     blinkLF.reset(0);
     blinkRF.reset(0);
+    openL = BLINK_OPEN_INIT;
+    openR = BLINK_OPEN_INIT;
+    nSmoothL = 0;
+    nSmoothR = 0;
+    winkHold = 0;
+    eyeClosedL = false;
+    eyeClosedR = false;
     jawF.reset(0);
     funnelF.reset(0);
     puckerF.reset(0);
@@ -465,6 +455,8 @@ export function createTracker(video, onStatus) {
       next[key] = sum / samples.length;
     }
     calib.base = next;
+    openL = next.blinkL;
+    openR = next.blinkR;
   }
 
   function ensureModels() {
@@ -648,7 +640,7 @@ export function createTracker(video, onStatus) {
       funnelRaw = score(blends, 'mouthFunnel');
       puckerRaw = score(blends, 'mouthPucker');
       smileRaw = (score(blends, 'mouthSmileLeft') + score(blends, 'mouthSmileRight')) / 2;
-      const blinks = screenBlinks(lm, blends, mirror);
+      const blinks = screenBlinks(blends, mirror);
       blinkRawL = blinks.blinkL;
       blinkRawR = blinks.blinkR;
       gazeRaw = rawGaze(lm, blends, mirror);
@@ -682,10 +674,10 @@ export function createTracker(video, onStatus) {
     const gazeX = gazeXF.filter(faceTracked ? gazeRaw.gazeX : 0, now);
     const gazeY = gazeYF.filter(faceTracked ? gazeRaw.gazeY : 0, now);
 
-    blinkLF.attack = rates.blinkAttack;
-    blinkLF.release = rates.blinkRelease;
-    blinkRF.attack = rates.blinkAttack;
-    blinkRF.release = rates.blinkRelease;
+    blinkLF.attack = 45;
+    blinkLF.release = 18;
+    blinkRF.attack = 45;
+    blinkRF.release = 18;
     jawF.attack = rates.mouthAttack;
     jawF.release = rates.mouthRelease;
     funnelF.attack = rates.mouthAttack;
@@ -700,15 +692,46 @@ export function createTracker(video, onStatus) {
     const funnelTarget = clamp(funnelRaw * 1.4 * mouthAmt, 0, 1.5);
     const puckerTarget = clamp(puckerRaw * 1.2 * mouthAmt, 0, 1.5);
     const smileTarget = clamp(Math.max(0, smileRaw - base.smile) * 1.3 * mouthAmt, 0, 1.5);
-    const blinkInL = smoothstep(0.25, 0.55, Math.max(0, blinkRawL - base.blinkL) * blinkAmt);
-    const blinkInR = smoothstep(0.25, 0.55, Math.max(0, blinkRawR - base.blinkR) * blinkAmt);
+    if (faceTracked) {
+      openL = followOpen(openL, blinkRawL, dt);
+      openR = followOpen(openR, blinkRawR, dt);
+    }
+    const nLraw = faceTracked ? normBlink(blinkRawL, openL) : 0;
+    const nRraw = faceTracked ? normBlink(blinkRawR, openR) : 0;
+    nSmoothL = pole(nSmoothL, nLraw, dt, 0.025);
+    nSmoothR = pole(nSmoothR, nRraw, dt, 0.025);
+    const nL = nSmoothL;
+    const nR = nSmoothR;
+    const wink = Math.abs(nL - nR) > 0.5 && Math.max(nL, nR) > 0.75;
+    if (settings?.independentWink === true && faceTracked && wink) winkHold += dt;
+    else winkHold = 0;
+    let linkL;
+    let linkR;
+    if (settings?.independentWink === true && winkHold >= 0.12) {
+      const lo = Math.min(nL, nR);
+      if (nL >= nR) {
+        linkL = nL;
+        linkR = lo;
+      } else {
+        linkR = nR;
+        linkL = lo;
+      }
+    } else {
+      const linked = (nL + nR) / 2;
+      linkL = linked;
+      linkR = linked;
+    }
+    const shapedL = shapeBlink(linkL * blinkAmt, eyeClosedL);
+    const shapedR = shapeBlink(linkR * blinkAmt, eyeClosedR);
+    eyeClosedL = shapedL.closed;
+    eyeClosedR = shapedR.closed;
 
     const jaw = jawF.update(faceTracked ? jawTarget : 0, dt);
     const funnel = funnelF.update(faceTracked ? funnelTarget : 0, dt);
     const pucker = puckerF.update(faceTracked ? puckerTarget : 0, dt);
     const smile = smileF.update(faceTracked ? smileTarget : 0, dt);
-    const blinkL = blinkLF.update(faceTracked ? blinkInL : 0, dt);
-    const blinkR = blinkRF.update(faceTracked ? blinkInR : 0, dt);
+    const blinkL = blinkLF.update(faceTracked ? shapedL.out : 0, dt);
+    const blinkR = blinkRF.update(faceTracked ? shapedR.out : 0, dt);
 
     const yawN = clamp(clamp((yawRad - base.yaw) / 0.6, -1, 1) * headAmt, -1.25, 1.25);
     const pitchN = clamp(clamp((pitchRad - base.pitch) / 0.45, -1, 1) * headAmt, -1.25, 1.25);

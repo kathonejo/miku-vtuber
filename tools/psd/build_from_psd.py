@@ -13,8 +13,12 @@ rng = np.random.default_rng(11)
 def R(x, y): return [round((x - OFF[0]) / K, 2), round((y - OFF[1]) / K, 2)]
 
 psd = PSDImage.open(PSD)
-layers = {l.name: l for l in psd if not l.is_group()}
-order = [l.name for l in psd if not l.is_group()]
+# layers may live inside groups; keep bottom->top order. Duplicate names: the first visible one wins.
+_all = [l for l in psd.descendants() if not l.is_group()]
+layers = {}
+for l in _all:
+    if l.name not in layers or (l.visible and not layers[l.name].visible): layers[l.name] = l
+order = [n for n in dict.fromkeys(l.name for l in _all)]
 
 # name -> (rig id, parent group, pivot in psd px, role)
 MAP = {
@@ -30,10 +34,11 @@ MAP = {
  'cuerpo':              ('body',         'body', (1030, 1750),'static'),
  'mechon izq delante':  ('strand_r',     'head', (1330, 700), 'hair'),
  'cabeza flequillo':    ('bangs',        'head', (1008, 900), 'static'),
- 'ojo der A':           ('eye_l_open',   'head', (716, 942),  'eye'),
- 'ojo der B':           ('eye_l_half',   'head', (716, 942),  'eye'),
- 'ojo izq A':           ('eye_r_open',   'head', (1242, 862), 'eye'),
- 'ojo izq B':           ('eye_r_half',   'head', (1242, 862), 'eye'),
+ # her A / B eye layers are two alternative eye STYLES (selectable in the app), not blink frames
+ 'ojo der A':           ('eye_l_A',      'head', (716, 942),  'eye'),
+ 'ojo der B':           ('eye_l_B',      'head', (716, 942),  'eye'),
+ 'ojo izq A':           ('eye_r_A',      'head', (1242, 862), 'eye'),
+ 'ojo izq B':           ('eye_r_B',      'head', (1242, 862), 'eye'),
 }
 
 def layer_full(l):
@@ -68,7 +73,7 @@ def poly_mask(poly, feather=2.0):
     return cv2.GaussianBlur(m, (0, 0), feather) if feather else m
 
 manifest = dict(rigSize=[600, 600], pxPerUnit=PX, psdOffset=OFF, psdScale=K, source=os.path.basename(PSD), parts=[], extras={})
-full = {n: layer_full(layers[n]) for n in order}
+full = {n: layer_full(layers[n]) for n in order if n in MAP}
 
 # ---------- face: erase her mouth (we animate mouths) ----------
 face = full['cabeza'].copy()
@@ -194,10 +199,102 @@ hm = poly_mask(HEART, 0); hm = cv2.GaussianBlur(cv2.erode(hm, np.ones((5, 5), np
 heart = full['cuerpo'].copy(); heart[..., 3] *= hm
 manifest['extras']['heart'] = export('heart', heart, dict(parent='body', role='heart', pivot=R(1012, 1210)))
 
+# ---------- optional arm / hand layers (picked up automatically when she adds them) ----------
+import re, unicodedata
+def norm(t):
+    t = unicodedata.normalize('NFKD', t.lower()).encode('ascii', 'ignore').decode()
+    return re.sub(r'\s+', ' ', t.replace('_', ' ')).strip()
+SHOULDER = {'l': (880, 1190), 'r': (1140, 1190)}       # screen-left / screen-right shoulder (psd px)
+POSES = {'saludo': 'wave', 'saludar': 'wave', 'corazon': 'heart', 'paz': 'peace', 'v': 'peace',
+         'aplauso': 'clap', 'aplaudir': 'clap', 'senala': 'point', 'senalar': 'point', 'apunta': 'point',
+         'arriba': 'up', 'celebra': 'up', 'celebrar': 'up', 'reposo': 'rest'}
+KINDS = {'brazo': 'upper', 'antebrazo': 'fore', 'manga': 'sleeve', 'mangas': 'sleeve', 'puno': 'sleeve', 'mano': 'sleeve', 'manos': 'sleeve'}
+# 'manga' = sleeve tip / cuff with the hand hidden inside (her design); 'mano' accepted as an alias
+overrides = {}
+ov_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pivots.json')
+if os.path.exists(ov_path): overrides = json.load(open(ov_path))
+arms = {}
+all_layers = [l for l in psd.descendants() if not l.is_group()]
+for l in all_layers:
+    nm = norm(l.name); words = nm.split(' ')
+    if not words or words[0] not in KINDS: continue
+    kind = KINDS[words[0]]
+    pose = next((POSES[w] for w in words[1:] if w in POSES), 'rest')
+    arr = layer_full(l)
+    ys, xs = np.where(arr[..., 3] > 8)
+    if len(xs) == 0: continue
+    cx = xs.mean()
+    if 'izq' in words or 'izquierda' in words: side = 'l'
+    elif 'der' in words or 'derecha' in words: side = 'r'
+    else: side = 'l' if cx < 1008 else 'r'
+    # her naming is not always screen-based, so trust the position when it clearly disagrees
+    if (side == 'l' and cx > 1150) or (side == 'r' and cx < 870): side = 'l' if cx < 1008 else 'r'
+    if pose == 'heart' and kind == 'sleeve' and abs(cx - 1008) < 120 and not ({'izq','der','izquierda','derecha'} & set(words)): side = 'both'
+    rid = f"{kind}_{side}" + ('' if pose == 'rest' else f"_{pose}")
+    # pivot: shoulder for upper arm, nearest end to the shoulder for forearm/hand
+    sh = SHOULDER['l' if side == 'both' else side]
+    if kind == 'upper': piv = sh
+    else:
+        d = (xs - sh[0]) ** 2 + (ys - sh[1]) ** 2; k = int(np.argmin(d)); piv = (int(xs[k]), int(ys[k]))
+    if l.name in overrides: piv = tuple(overrides[l.name])
+    e = export(rid, arr, dict(psdName=l.name, kind=kind, side=side, pose=pose, parent='body', pivot=R(*piv), visibleInPsd=bool(l.visible)))
+    if e: arms[rid] = e; print('arm layer', repr(l.name), '->', rid)
+manifest['arms'] = dict(parts=arms, shoulders={k: R(*v) for k, v in SHOULDER.items()}, hasCustom=bool(arms))
+# ---------- eyes: styles A/B + optional detailed sub-layers ----------
+# Supported names (case/accent-insensitive, may live in groups; side izq/der corrected by position):
+#   'ojo izq A' / 'ojo izq B'           full eye drawing for style A / B
+#   'ojo izq blanco [A|B]'              eye white (sclera)
+#   'iris izq [A|B]'                    iris (moves with gaze, clipped to the white if present)
+#   'pupila izq [A|B]'                  pupil (moves with gaze, a bit more than the iris)
+#   'brillo izq [A|B]'                  highlight (moves slightly less)
+#   'pestanas izq [A|B]' / 'parpado izq [A|B]' / 'linea ojo izq [A|B]'   upper lid / lashes line
+#   'ojo izq cerrado'                   closed eye (replaces the generated lash arc)
+import re as _re, unicodedata as _ud
+def _norm(t):
+    t = _ud.normalize('NFKD', t.lower()).encode('ascii', 'ignore').decode()
+    return _re.sub(r'\s+', ' ', t.replace('_', ' ')).strip()
+EYE_C = {'l': (716, 942), 'r': (1242, 862)}
+eyes = {sd: dict(center=R(*EYE_C[sd]), styles={}, closed=None) for sd in 'lr'}
+for p in manifest['parts']:
+    if p.get('role') == 'eye' and 'file' in p:
+        sd, st = p['id'].split('_')[1], p['id'].split('_')[2]
+        eyes[sd]['styles'].setdefault(st, {})['full'] = {k: p[k] for k in ('file', 'x', 'y', 'w', 'h', 'px', 'psdName')}
+SUB = {'blanco': 'white', 'iris': 'iris', 'pupila': 'pupil', 'brillo': 'highlight', 'pestanas': 'lash',
+       'parpado': 'lash', 'linea': 'lash', 'cerrado': 'closed'}
+for l in psd.descendants():
+    if l.is_group() or l.name in MAP: continue
+    words = _norm(l.name).split(' ')
+    if not ({'ojo', 'iris', 'pupila', 'brillo', 'pestanas', 'parpado'} & set(words[:1]) or words[:2] == ['linea', 'ojo']): continue
+    kind = next((SUB[w] for w in words if w in SUB), None)
+    if kind is None: continue
+    arr = layer_full(l); ys, xs = np.where(arr[..., 3] > 8)
+    if len(xs) == 0: continue
+    sd = 'l' if xs.mean() < 1008 else 'r'
+    st = 'B' if 'b' in words[1:] else 'A'
+    rid = f'eye_{sd}_{kind}' + ('' if kind == 'closed' else f'_{st}')
+    e = export(rid, arr, dict(psdName=l.name))
+    if not e: continue
+    if kind == 'closed': eyes[sd]['closed'] = e
+    else: eyes[sd]['styles'].setdefault(st, {})[kind] = e
+    print('eye layer', repr(l.name), '->', rid)
+for sd in 'lr':
+    if eyes[sd]['closed'] is None: eyes[sd]['closed'] = manifest['extras'][f'eye_{sd}_closed']
+    else: eyes[sd]['closedFromPsd'] = True
+manifest['eyes'] = eyes
+manifest['eyeStyles'] = sorted(set(eyes['l']['styles']) | set(eyes['r']['styles']))
+# collapse the per-style eye entries in the draw order into one slot per side
+newparts, seen = [], set()
+for p in manifest['parts']:
+    if p.get('role') == 'eye' and 'file' in p:
+        sd = p['id'].split('_')[1]
+        if sd in seen: continue
+        seen.add(sd); newparts.append(dict(id=f'eye_{sd}', role='eye', parent='head', side=sd, pivot=R(*EYE_C[sd])))
+    else: newparts.append(p)
+manifest['parts'] = newparts
 manifest['pivots'] = dict(neck=R(1008, 1100), feet=R(1030, 1750), eye_l=R(716, 942), eye_r=R(1242, 862), headTop=R(1008, 640))
 manifest['bounds'] = dict(x0=R(333, 114)[0], y0=R(333, 114)[1], x1=R(1716, 1752)[0], y1=R(1716, 1752)[1])
 manifest['drawOrder'] = [p['id'] for p in manifest['parts']]
-manifest['blink'] = dict(frames=['open', 'half', 'closed'], note='blink<0.33 -> *_open, <0.7 -> *_half (her B layer), else *_closed (generated lash arc; face skin shows under)')
+manifest['blink'] = dict(frames=['open', 'closed'], note='open = selected eye style (A/B); closed = eyes.<side>.closed (her ojo cerrado layer or the generated lash arc)')
 json.dump(manifest, open(f'{OUT}/rig.json', 'w'), indent=1, ensure_ascii=False)
 print('order', manifest['drawOrder'])
 print('done')

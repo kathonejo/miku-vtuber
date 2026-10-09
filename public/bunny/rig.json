@@ -258,84 +258,24 @@
    "id": "bangs"
   },
   {
-   "file": "eye_l_half.png",
-   "x": 126.0,
-   "y": 277.67,
-   "w": 140.0,
-   "h": 44.67,
-   "px": [
-    280,
-    89
-   ],
-   "psdName": "ojo der B",
-   "parent": "head",
+   "id": "eye_l",
    "role": "eye",
+   "parent": "head",
+   "side": "l",
    "pivot": [
     197.0,
     301.0
-   ],
-   "visibleInPsd": false,
-   "id": "eye_l_half"
+   ]
   },
   {
-   "file": "eye_l_open.png",
-   "x": 126.0,
-   "y": 279.67,
-   "w": 142.33,
-   "h": 42.67,
-   "px": [
-    285,
-    85
-   ],
-   "psdName": "ojo der A",
-   "parent": "head",
+   "id": "eye_r",
    "role": "eye",
-   "pivot": [
-    197.0,
-    301.0
-   ],
-   "visibleInPsd": true,
-   "id": "eye_l_open"
-  },
-  {
-   "file": "eye_r_open.png",
-   "x": 305.0,
-   "y": 246.33,
-   "w": 134.67,
-   "h": 55.67,
-   "px": [
-    269,
-    111
-   ],
-   "psdName": "ojo izq A",
    "parent": "head",
-   "role": "eye",
+   "side": "r",
    "pivot": [
     372.33,
     274.33
-   ],
-   "visibleInPsd": true,
-   "id": "eye_r_open"
-  },
-  {
-   "file": "eye_r_half.png",
-   "x": 308.67,
-   "y": 252.67,
-   "w": 120.0,
-   "h": 44.67,
-   "px": [
-    240,
-    89
-   ],
-   "psdName": "ojo izq B",
-   "parent": "head",
-   "role": "eye",
-   "pivot": [
-    372.33,
-    274.33
-   ],
-   "visibleInPsd": false,
-   "id": "eye_r_half"
+   ]
   }
  ],
  "extras": {
@@ -444,6 +384,124 @@
   290.0,
   327.67
  ],
+ "arms": {
+  "parts": {},
+  "shoulders": {
+   "l": [
+    251.67,
+    383.67
+   ],
+   "r": [
+    338.33,
+    383.67
+   ]
+  },
+  "hasCustom": false
+ },
+ "eyes": {
+  "l": {
+   "center": [
+    197.0,
+    301.0
+   ],
+   "styles": {
+    "B": {
+     "full": {
+      "file": "eye_l_B.png",
+      "x": 126.0,
+      "y": 277.67,
+      "w": 140.0,
+      "h": 44.67,
+      "px": [
+       280,
+       89
+      ],
+      "psdName": "ojo der B"
+     }
+    },
+    "A": {
+     "full": {
+      "file": "eye_l_A.png",
+      "x": 126.0,
+      "y": 279.67,
+      "w": 142.33,
+      "h": 42.67,
+      "px": [
+       285,
+       85
+      ],
+      "psdName": "ojo der A"
+     }
+    }
+   },
+   "closed": {
+    "file": "eye_l_closed.png",
+    "x": 140.33,
+    "y": 299.0,
+    "w": 117.67,
+    "h": 23.33,
+    "px": [
+     235,
+     47
+    ],
+    "parent": "head",
+    "role": "eye"
+   }
+  },
+  "r": {
+   "center": [
+    372.33,
+    274.33
+   ],
+   "styles": {
+    "A": {
+     "full": {
+      "file": "eye_r_A.png",
+      "x": 305.0,
+      "y": 246.33,
+      "w": 134.67,
+      "h": 55.67,
+      "px": [
+       269,
+       111
+      ],
+      "psdName": "ojo izq A"
+     }
+    },
+    "B": {
+     "full": {
+      "file": "eye_r_B.png",
+      "x": 308.67,
+      "y": 252.67,
+      "w": 120.0,
+      "h": 44.67,
+      "px": [
+       240,
+       89
+      ],
+      "psdName": "ojo izq B"
+     }
+    }
+   },
+   "closed": {
+    "file": "eye_r_closed.png",
+    "x": 314.33,
+    "y": 277.0,
+    "w": 112.0,
+    "h": 27.33,
+    "px": [
+     224,
+     55
+    ],
+    "parent": "head",
+    "role": "eye"
+   }
+  }
+ },
+ "eyeStyles": [
+  "A",
+  "B"
+ ],
  "pivots": {
   "neck": [
    294.33,
@@ -486,17 +544,14 @@
   "body",
   "strand_r",
   "bangs",
-  "eye_l_half",
-  "eye_l_open",
-  "eye_r_open",
-  "eye_r_half"
+  "eye_l",
+  "eye_r"
  ],
  "blink": {
   "frames": [
    "open",
-   "half",
    "closed"
   ],
-  "note": "blink<0.33 -> *_open, <0.7 -> *_half (her B layer), else *_closed (generated lash arc; face skin shows under)"
+  "note": "open = selected eye style (A/B); closed = eyes.<side>.closed (her ojo cerrado layer or the generated lash arc)"
  }
 }

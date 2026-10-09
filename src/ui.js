@@ -1,5 +1,8 @@
+import { createActions } from './actions.js';
 import { finite } from './filters.js';
 import { createPuppet } from './puppet.js';
+import { createRigEditor } from './rigeditor.js';
+import { shakeTargets } from './rigparams.js';
 import {
   ACCESSORY_DEFS,
   BACKGROUNDS,
@@ -58,6 +61,8 @@ export function mount(doc) {
   const stage = doc.getElementById('stage');
 
   const puppet = createPuppet(canvas);
+  const actions = createActions();
+  const rig = createRigEditor(doc, puppet, (message) => toast(message));
   let debugTargets = null;
   let toastTimer = 0;
   let wasCalibrating = false;
@@ -72,6 +77,18 @@ export function mount(doc) {
   const api = {
     setDebugTargets,
     ready: puppet.ready,
+    action(name) {
+      return actions.trigger(name);
+    },
+    freezeAction(name, t) {
+      actions.freeze(name, t);
+    },
+    rig: {
+      open() { rig.open(); },
+      select(id) { rig.open(); rig.select(id); },
+      set(id, params) { rig.set(id, params); },
+      preview(flag) { rig.preview(flag); },
+    },
   };
   const root = doc.defaultView || (typeof window !== 'undefined' ? window : null);
   if (root) root.__bunny = api;
@@ -151,6 +168,9 @@ export function mount(doc) {
       const item = TOGGLE_DEFS.find((entry) => entry.name === btn.textContent);
       if (item) btn.setAttribute('aria-pressed', String(Boolean(settings[item.id])));
     }
+    for (const btn of doc.querySelectorAll('#eye-style-list button')) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.eye === (settings.eyeStyle === 'B' ? 'B' : 'A')));
+    }
   }
 
   function syncSliderValues() {
@@ -170,6 +190,16 @@ export function mount(doc) {
     if (bgInput && doc.activeElement !== bgInput) bgInput.value = settings.bgColor;
     doc.getElementById('btn-preview').setAttribute('aria-pressed', String(settings.showPreview));
     doc.getElementById('btn-landmarks').setAttribute('aria-pressed', String(settings.showLandmarks));
+    const winkBtn = doc.getElementById('btn-wink');
+    if (winkBtn) winkBtn.setAttribute('aria-pressed', String(settings.independentWink === true));
+    const bar = doc.getElementById('action-bar');
+    if (bar) {
+      bar.hidden = !startScreen.hidden;
+      const active = actions.currentId();
+      for (const btn of bar.querySelectorAll('button[data-action]')) {
+        btn.setAttribute('aria-pressed', String(btn.dataset.action === active));
+      }
+    }
     const open = layout.classList.contains('panel-open');
     doc.getElementById('btn-panel').setAttribute('aria-expanded', String(open));
     syncPreview();
@@ -205,6 +235,7 @@ export function mount(doc) {
   }
 
   function setPanel(open) {
+    if (open) rig.close();
     layout.classList.toggle('panel-open', open);
     const mobile = root?.matchMedia?.('(max-width: 900px)')?.matches ?? false;
     backdrop.hidden = !(open && mobile);
@@ -229,11 +260,13 @@ export function mount(doc) {
       demo.down = false;
     }
     syncCameraButtons();
+    syncChrome();
   }
 
   function enterDemo() {
     startScreen.hidden = true;
     if (!tracker.isRunning()) setStatus(MSG.demo);
+    syncChrome();
   }
 
   async function enterStream() {
@@ -290,6 +323,14 @@ export function mount(doc) {
     return decorativeTargets(now / 1000, demo.active ? demo : null, settings);
   }
 
+  function syncActionPressed(id) {
+    const bar = doc.getElementById('action-bar');
+    if (!bar) return;
+    for (const btn of bar.querySelectorAll('button[data-action]')) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.action === id));
+    }
+  }
+
   function watchCalibration() {
     const calibrating = tracker.isCalibrating();
     if (calibrating && !wasCalibrating) setStatus(MSG.calibrating);
@@ -305,7 +346,12 @@ export function mount(doc) {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       watchCalibration();
-      const targets = currentTargets(now);
+      const raw = currentTargets(now);
+      const fx = actions.step(dt, raw);
+      if (fx.jump) puppet.triggerJump();
+      let targets = actions.merge(raw, fx);
+      if (rig.previewing()) targets = shakeTargets(targets, now / 1000);
+      syncActionPressed(fx.id);
       puppet.update(dt, targets, settings);
       puppet.draw(settings);
       tracker.drawDebug(overlay, settings.showLandmarks);
@@ -336,8 +382,24 @@ export function mount(doc) {
   doc.getElementById('btn-panel').addEventListener('click', () => {
     setPanel(!layout.classList.contains('panel-open'));
   });
+  doc.getElementById('btn-rig').addEventListener('click', () => {
+    if (rig.isOpen()) rig.close();
+    else rig.open();
+    doc.getElementById('btn-rig').setAttribute('aria-expanded', String(rig.isOpen()));
+  });
+  for (const btn of doc.querySelectorAll('#eye-style-list button')) {
+    btn.addEventListener('click', () => {
+      settings.eyeStyle = btn.dataset.eye === 'B' ? 'B' : 'A';
+      persist();
+      renderChoices();
+    });
+  }
   doc.getElementById('btn-close-panel').addEventListener('click', () => setPanel(false));
-  backdrop.addEventListener('click', () => setPanel(false));
+  doc.getElementById('btn-close-rig').addEventListener('click', () => rig.close());
+  backdrop.addEventListener('click', () => {
+    setPanel(false);
+    if (rig.isOpen()) rig.close();
+  });
 
   doc.getElementById('btn-save').addEventListener('click', () => {
     toast(persist() ? 'Guardado' : 'No se pudo guardar');
@@ -367,6 +429,16 @@ export function mount(doc) {
   doc.getElementById('btn-calibrate').addEventListener('click', () => {
     if (!tracker.calibrate()) toast('Activa la cámara para calibrar');
   });
+  doc.getElementById('btn-wink').addEventListener('click', () => {
+    settings.independentWink = !settings.independentWink;
+    persist();
+    syncChrome();
+  });
+  doc.getElementById('action-bar').addEventListener('click', (event) => {
+    const btn = event.target.closest('button[data-action]');
+    if (!btn) return;
+    actions.trigger(btn.dataset.action);
+  });
   doc.getElementById('btn-stream').addEventListener('click', () => { void enterStream(); });
   doc.getElementById('btn-exit-stream').addEventListener('click', () => { void exitStream(); });
 
@@ -395,15 +467,40 @@ export function mount(doc) {
       if (event.repeat) return;
       event.preventDefault();
       puppet.triggerJump();
+      return;
+    }
+    const gesture = {
+      1: 'wave',
+      2: 'heart',
+      3: 'peace',
+      4: 'clap',
+      5: 'point',
+      6: 'up',
+    }[event.key];
+    if (gesture) {
+      if (event.repeat) return;
+      actions.trigger(gesture);
     }
   });
 
   stage.addEventListener('pointermove', (event) => {
+    if (rig.isOpen()) {
+      rig.onPointerMove(event);
+      return;
+    }
     if (tracker.isRunning()) return;
     placeDemo(event);
     if (!dragging) demo.down = event.buttons > 0;
   });
   stage.addEventListener('pointerdown', (event) => {
+    if (rig.isOpen()) {
+      if (event.button !== 0 || isControl(event)) return;
+      if (rig.onPointerDown(event)) {
+        dragging = true;
+        try { stage.setPointerCapture(event.pointerId); } catch { /* sin captura */ }
+      }
+      return;
+    }
     if (tracker.isRunning() || event.button !== 0 || isControl(event)) return;
     dragging = true;
     demo.down = true;
@@ -411,6 +508,11 @@ export function mount(doc) {
     try { stage.setPointerCapture(event.pointerId); } catch { /* el puntero puede no admitir captura */ }
   });
   stage.addEventListener('pointerup', (event) => {
+    if (rig.isOpen()) {
+      rig.onPointerUp();
+      dragging = false;
+      return;
+    }
     dragging = false;
     demo.down = false;
     const rect = canvas.getBoundingClientRect();

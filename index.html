@@ -29,6 +29,7 @@
           <button id="btn-preview" type="button" aria-pressed="true">Vista previa</button>
           <button id="btn-landmarks" type="button" aria-pressed="false">Puntos</button>
           <button id="btn-panel" type="button" aria-expanded="true">Personalizar</button>
+          <button id="btn-rig" type="button" aria-expanded="false">Rigging</button>
         </div>
       </header>
       <div id="layout" class="panel-open">
@@ -53,6 +54,15 @@
             </div>
           </div>
           <button id="btn-exit-stream" type="button" hidden>Salir del modo stream</button>
+          <div id="action-bar" hidden aria-label="Acciones">
+            <span class="action-kicker">Acciones</span>
+            <button type="button" data-action="wave" title="Atajo: 1"><span aria-hidden="true">👋</span><b>Saludar</b><kbd>1</kbd></button>
+            <button type="button" data-action="heart" title="Atajo: 2"><span aria-hidden="true">🫶</span><b>Corazón</b><kbd>2</kbd></button>
+            <button type="button" data-action="peace" title="Atajo: 3"><span aria-hidden="true">✌️</span><b>Paz</b><kbd>3</kbd></button>
+            <button type="button" data-action="clap" title="Atajo: 4"><span aria-hidden="true">👏</span><b>Aplaudir</b><kbd>4</kbd></button>
+            <button type="button" data-action="point" title="Atajo: 5"><span aria-hidden="true">👉</span><b>Señalar</b><kbd>5</kbd></button>
+            <button type="button" data-action="up" title="Atajo: 6"><span aria-hidden="true">🙌</span><b>¡Celebrar!</b><kbd>6</kbd></button>
+          </div>
         </section>
         <aside id="panel" aria-label="Personalización">
           <div class="panel-head">
@@ -63,6 +73,11 @@
             <section>
               <h3>Estilo</h3>
               <div id="style-list" class="choice-grid"></div>
+              <h3>Ojos</h3>
+              <div id="eye-style-list" class="choice-grid">
+                <button type="button" data-eye="A">Ojos A</button>
+                <button type="button" data-eye="B">Ojos B</button>
+              </div>
             </section>
             <section>
               <h3>Accesorios</h3>
@@ -90,6 +105,7 @@
                 <span>Suavizado <b id="sens-smooth-val"></b></span>
                 <input id="sens-smooth" type="range" min="0" max="1" step="0.01" />
               </label>
+              <button id="btn-wink" type="button" aria-pressed="false">Guiño independiente</button>
             </section>
             <section>
               <h3>Fondo</h3>
@@ -112,9 +128,16 @@
               <button id="btn-stream" type="button" class="wide">Modo stream</button>
             </section>
             <p class="fine">
-              Arte original de Katherine Sánchez Carrasco. El vídeo no sale de este dispositivo. Teclas: H oculta la interfaz, doble clic la devuelve, Espacio salta.
+              Arte original de Katherine Sánchez Carrasco. El vídeo no sale de este dispositivo. Teclas: H oculta la interfaz, doble clic la devuelve, Espacio salta, 1–6 gestos con las mangas.
             </p>
           </div>
+        </aside>
+        <aside id="rig-panel" hidden aria-label="Rigging">
+          <div class="panel-head">
+            <h2>Rigging</h2>
+            <button id="btn-close-rig" type="button">Cerrar</button>
+          </div>
+          <div id="rig-body" class="panel-scroll"></div>
         </aside>
       </div>
     </div>

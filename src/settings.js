@@ -70,6 +70,8 @@ export const DEFAULT_SETTINGS = {
   paperShadow: true,
   paperThickness: true,
   bounce: true,
+  independentWink: false,
+  eyeStyle: 'A',
 };
 
 export function isHex(v) {
@@ -115,6 +117,8 @@ function mergeSettings(base, saved) {
   out.paperShadow = out.paperShadow !== false;
   out.paperThickness = out.paperThickness !== false;
   out.bounce = out.bounce !== false;
+  out.independentWink = out.independentWink === true;
+  out.eyeStyle = out.eyeStyle === 'B' ? 'B' : 'A';
   return out;
 }
 

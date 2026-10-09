@@ -1,12 +1,19 @@
+import { createSleeves } from './arms.js';
+import { createEyePainter, resolveStyle, stepEyeOpen, collectEyeFiles } from './eyes.js';
 import { clamp, finite, hash01, Spring1D } from './filters.js';
+import {
+  applyOverrides as applyRigData,
+  captureBase,
+  loadOverrides,
+  restoreBase,
+  stampPart,
+  strandTarget,
+} from './rigparams.js';
 import { isChroma, styleById } from './settings.js';
 
 const MAX_ROLL = (10 * Math.PI) / 180;
-const MAX_EAR = (7 * Math.PI) / 180;
-const MAX_HAIR = (3 * Math.PI) / 180;
-const MAX_HAIR_BACK = (1.5 * Math.PI) / 180;
 const MAX_LEAN = (4 * Math.PI) / 180;
-const EYE_FADE = 0.05;
+const EYE_FADE = 0.04;
 const MOUTH_FADE = 0.06;
 
 /** Parallax inside the head, in rig units, multiplied by normalized yaw/pitch. */
@@ -103,6 +110,16 @@ function emptyManifest() {
     bounds: { x0: 69.33, y0: 25, x1: 530.33, y1: 571 },
     byId: {},
     eyeSlot: { eye_l: null, eye_r: null },
+    eyes: { l: null, r: null },
+    eyeStyles: ['A', 'B'],
+    arms: {
+      parts: {},
+      shoulders: {
+        l: { x: 251.67, y: 383.67 },
+        r: { x: 338.33, y: 383.67 },
+      },
+      hasCustom: false,
+    },
   };
 }
 
@@ -142,6 +159,17 @@ function normalizeManifest(json) {
   }
   m.byId = byId;
   m.eyeSlot = eyeSlot;
+  if (json.eyes && typeof json.eyes === 'object') {
+    m.eyes = { l: json.eyes.l || null, r: json.eyes.r || null };
+  }
+  if (Array.isArray(json.eyeStyles) && json.eyeStyles.length) m.eyeStyles = json.eyeStyles.slice();
+  if (json.arms && typeof json.arms === 'object') {
+    const sh = json.arms.shoulders || {};
+    m.arms.shoulders.l = xy(sh.l, m.arms.shoulders.l);
+    m.arms.shoulders.r = xy(sh.r, m.arms.shoulders.r);
+    if (json.arms.parts && typeof json.arms.parts === 'object') m.arms.parts = json.arms.parts;
+    m.arms.hasCustom = Boolean(json.arms.hasCustom) && Object.keys(m.arms.parts).length > 0;
+  }
   return m;
 }
 
@@ -153,6 +181,8 @@ function collectFiles(manifest) {
   for (const part of manifest.parts) add(part.file);
   for (const mouth of Object.values(manifest.mouths || {})) add(mouth?.file);
   for (const extra of Object.values(manifest.extras || {})) add(extra?.file);
+  for (const arm of Object.values(manifest.arms?.parts || {})) add(arm?.file);
+  collectEyeFiles(manifest, add);
   return files;
 }
 
@@ -174,24 +204,6 @@ function pivotOf(part) {
     x: finite(part?.x, 0) + finite(part?.w, 0) / 2,
     y: finite(part?.y, 0) + finite(part?.h, 0) / 2,
   };
-}
-
-function hairSign(id) {
-  if (id === 'hair_back') return 0.35;
-  if (id.includes('_l')) return 1;
-  if (id.includes('_r')) return -1;
-  return 0.5;
-}
-
-function hairMax(id) {
-  return id === 'hair_back' ? MAX_HAIR_BACK : MAX_HAIR;
-}
-
-function eyeFrameName(blink) {
-  const b = clamp(blink, 0, 1);
-  if (b < 0.33) return 'open';
-  if (b < 0.7) return 'half';
-  return 'closed';
 }
 
 function pixelSize(img, fallbackW = 2, fallbackH = 2) {
@@ -894,6 +906,8 @@ function drawBackground(ctx, w, h, time, settings, grain) {
 
 export function createPuppet(canvas) {
   const ctx = canvas.getContext('2d');
+  const sleeves = createSleeves();
+  const eyePainter = createEyePainter();
 
   const yawS = new Spring1D(180, 14);
   const pitchS = new Spring1D(180, 14);
@@ -913,6 +927,18 @@ export function createPuppet(canvas) {
     baked: null,
     bakedStyle: 'original',
     manifest: emptyManifest(),
+    source: null,
+    baseParts: [],
+    rigStore: { order: null, parts: {} },
+    highlight: null,
+    eyeStyle: 'A',
+    delay: {},
+    alpha: new Map(),
+    place: { scale: 1, ox: 0, oy: 0 },
+    useShadow: true,
+    useEdge: true,
+    edgeOx: 0,
+    edgeAlpha: 0,
     grain: null,
     jumpT: null,
     prevJaw: 0,
@@ -985,10 +1011,17 @@ export function createPuppet(canvas) {
   }
 
   function initSprings() {
-    for (const key of Object.keys(partSprings)) delete partSprings[key];
+    const keep = new Set();
     for (const part of state.manifest.parts) {
-      if (part.role === 'ear') partSprings[part.id] = new Spring1D(130, 12);
-      else if (part.role === 'hair') partSprings[part.id] = new Spring1D(110, 11);
+      if (part.role !== 'ear' && part.role !== 'hair') continue;
+      keep.add(part.id);
+      if (!partSprings[part.id]) {
+        const rig = part.rig;
+        partSprings[part.id] = new Spring1D(rig?.stiffness || 110, rig?.damping || 12);
+      }
+    }
+    for (const key of Object.keys(partSprings)) {
+      if (!keep.has(key)) delete partSprings[key];
     }
   }
 
@@ -1004,6 +1037,41 @@ export function createPuppet(canvas) {
     }
   }
 
+  function sampleDelay(id, phase, pose) {
+    const buf = state.delay[id] || (state.delay[id] = []);
+    buf.push({ t: state.time, yaw: pose.yaw, rollRad: pose.rollRad, lean: pose.lean });
+    const horizon = state.time - 0.3;
+    while (buf.length > 2 && buf[0].t < horizon) buf.shift();
+    const want = state.time - clamp(phase, 0, 1) * 0.25;
+    let chosen = buf[0];
+    for (const sample of buf) {
+      if (sample.t <= want) chosen = sample;
+    }
+    return chosen || pose;
+  }
+
+  function reindex() {
+    const byId = {};
+    const eyeSlot = { eye_l: null, eye_r: null };
+    for (const part of state.manifest.parts) {
+      if (part?.id) byId[part.id] = part;
+      if (part?.role === 'eye' && part.id) {
+        const side = part.id.startsWith('eye_r') ? 'eye_r' : 'eye_l';
+        if (!eyeSlot[side]) eyeSlot[side] = part;
+      }
+    }
+    state.manifest.byId = byId;
+    state.manifest.eyeSlot = eyeSlot;
+  }
+
+  function installOverrides(store) {
+    restoreBase(state.manifest, state.base);
+    if (store) applyRigData(state.manifest, store);
+    state.rigStore = store || null;
+    reindex();
+    initSprings();
+  }
+
   function update(dtIn, targets, settings) {
     let dt = finite(dtIn, 0);
     if (dt < 0) dt = 0;
@@ -1014,17 +1082,7 @@ export function createPuppet(canvas) {
       spring.k = tune.k;
       spring.c = tune.c;
     }
-    for (const part of state.manifest.parts) {
-      const spr = partSprings[part.id];
-      if (!spr) continue;
-      if (part.role === 'ear') {
-        spr.k = tune.k * 0.72;
-        spr.c = tune.c * 0.95;
-      } else {
-        spr.k = tune.k * 0.52;
-        spr.c = tune.c * 0.88;
-      }
-    }
+    state.eyeStyle = settings?.eyeStyle === 'B' ? 'B' : 'A';
 
     const face = Boolean(targets?.face);
     const yawT = clamp(num(targets, 'yaw'), -1.5, 1.5);
@@ -1050,6 +1108,7 @@ export function createPuppet(canvas) {
       const dPitch = Math.abs(pitch - state.prevPitch);
       const dWrist = Math.max(0, wristUp - state.prevWrist);
       bounceS.v += clamp(dJaw * 0.85 + dPitch * 0.4 + dWrist * 0.55, 0, 0.25) * bounceAmt;
+      bounceS.v += clamp(num(targets, 'exprBounce'), 0, 0.2);
     }
     let sustain = 0;
     if (bounceOn) {
@@ -1066,7 +1125,8 @@ export function createPuppet(canvas) {
     bodySy = clamp(bodySy, 0.88, 1.05);
     const bodySx = clamp(1 / Math.sqrt(Math.max(0.6, bodySy)), 0.9, 1.12);
     const shoulder = clamp(num(targets, 'shoulderTilt'), -0.2, 0.2);
-    const lean = clamp(0.35 * rollRad + shoulder, -MAX_LEAN, MAX_LEAN);
+    const exprLean = clamp(num(targets, 'exprLean'), -1.5, 1.5);
+    const lean = clamp(0.35 * rollRad + shoulder + exprLean * 0.12, -0.22, 0.22);
 
     let auto = 0;
     if (!face) {
@@ -1100,32 +1160,40 @@ export function createPuppet(canvas) {
     }
 
     const partRot = {};
+    const pose = { yaw, rollRad, lean };
     for (const part of state.manifest.parts) {
-      const spr = partSprings[part.id];
-      if (!spr) continue;
-      if (part.role === 'ear') {
-        const left = part.id.endsWith('_l');
-        const target = left
-          ? clamp(-yaw * 0.09 + rollRad * 0.25 + wiggle, -MAX_EAR, MAX_EAR)
-          : clamp(yaw * 0.08 - rollRad * 0.25 - wiggle * 0.85, -MAX_EAR, MAX_EAR);
-        spr.update(target, dt);
-        partRot[part.id] = clamp(spr.x, -MAX_EAR, MAX_EAR);
-      } else if (part.role === 'hair') {
-        const max = hairMax(part.id);
-        const sign = hairSign(part.id);
-        const phase = hash01(part.id.length + 7) * Math.PI * 2;
-        const breeze = Math.sin(state.time * 1.65 + phase) * 0.012;
-        const lag = -rollRad * 0.45 * sign - yaw * 0.07 * sign + lean * 0.18 * sign;
-        spr.update(clamp(lag + breeze, -max, max), dt);
-        partRot[part.id] = clamp(spr.x, -max, max);
+      const rig = part.rig;
+      if (!rig || (part.role !== 'hair' && part.role !== 'ear')) continue;
+      let spr = partSprings[part.id];
+      if (!spr) {
+        spr = new Spring1D(rig.stiffness, rig.damping);
+        partSprings[part.id] = spr;
       }
+      spr.k = rig.stiffness;
+      spr.c = rig.damping;
+      const delayed = sampleDelay(part.id, rig.phase, pose);
+      let target = strandTarget(part, rig, delayed, state.time);
+      if (part.role === 'ear') {
+        const left = String(part.id).endsWith('_l');
+        const lim = (rig.limit || 7) * (Math.PI / 180);
+        target = clamp(target + wiggle * (left ? 1 : -0.85), -lim, lim);
+      }
+      partRot[part.id] = spr.update(target, dt);
     }
 
     const beat = bounceOn ? 0.5 * Math.max(0, bounce) : 0;
-    const heartTarget = clamp(1 + 0.06 * wristUp + 0.04 * smile + beat, 1, 1.1);
+    const exprHeart = clamp(num(targets, 'exprHeart'), 0, 0.25);
+    const heartTarget = clamp(1 + 0.06 * wristUp + 0.04 * smile + beat + exprHeart, 1, 1.18);
     heartScaleS.update(heartTarget, dt);
 
-    const choice = pickViseme(jaw, funnel, pucker, smile);
+    const exprSmile = clamp(num(targets, 'exprSmile'), 0, 1);
+    let choice = pickViseme(jaw, funnel, pucker, smile);
+    if (exprSmile > 0.15 && jaw < 0.22 && (choice.id === 'neutral' || choice.id === 'small')) {
+      choice = {
+        id: 'smile',
+        scores: { ...choice.scores, smile: Math.max(exprSmile, smile), neutral: 0, small: 0 },
+      };
+    }
     if (choice.id !== state.mouthId) {
       if (state.pending !== choice.id) {
         state.pending = choice.id;
@@ -1149,9 +1217,9 @@ export function createPuppet(canvas) {
     state.mouthFade = Math.min(1, state.mouthFade + dt / MOUTH_FADE);
 
     for (const side of ['eye_l', 'eye_r']) {
-      const blink = side === 'eye_l' ? blinkL : blinkR;
-      const next = eyeFrameName(blink);
       const slot = state.eye[side];
+      const blink = side === 'eye_l' ? blinkL : blinkR;
+      const next = stepEyeOpen(slot.id, blink);
       if (next !== slot.id) {
         slot.prev = slot.id;
         slot.id = next;
@@ -1192,7 +1260,8 @@ export function createPuppet(canvas) {
     view.bodySx = bodySx;
     view.bodySy = bodySy;
     view.lean = lean;
-    view.heartScale = clamp(heartScaleS.x, 1, 1.1);
+    view.heartScale = clamp(heartScaleS.x, 1, 1.18);
+    sleeves.update(dt, targets?.sleeve || null);
     view.jumpY = finite(jumpY, 0);
     view.jumpSy = clamp(finite(jumpSy, 1), 0.75, 1.25);
     view.face = face;
@@ -1236,14 +1305,17 @@ export function createPuppet(canvas) {
 
   function applyLocal(part, extraX = 0, extraY = 0) {
     const view = state.view;
+    const rig = part?.rig || {};
     const [px, py] = parallaxOf(part);
-    const tx = px * view.yaw + extraX;
-    const ty = py * view.pitch + extraY;
-    const rot = view.partRot[part?.id] || 0;
+    const tx = px * view.yaw + extraX + (rig.dx || 0);
+    const ty = py * view.pitch + extraY + (rig.dy || 0);
+    const rot = (view.partRot[part?.id] || 0) + (rig.rot || 0) * (Math.PI / 180);
+    const sc = rig.scale > 0 ? rig.scale : 1;
     const pivot = pivotOf(part);
-    if (rot || tx || ty) {
+    if (rot || tx || ty || sc !== 1) {
       ctx.translate(pivot.x + tx, pivot.y + ty);
       if (rot) ctx.rotate(rot);
+      if (sc !== 1) ctx.scale(sc, sc);
       ctx.translate(-pivot.x, -pivot.y);
     }
   }
@@ -1270,32 +1342,38 @@ export function createPuppet(canvas) {
     blitEntry(sourceOf(entry?.file), entry);
   }
 
-  function eyeEntry(side, frame) {
-    const m = state.manifest;
-    if (frame === 'closed') return m.extras[`${side}_closed`] || null;
-    return m.byId[`${side}_${frame}`] || null;
+  function eyeGraphic(side, closed) {
+    const { eye, style } = resolveStyle(state.manifest, side, state.eyeStyle);
+    if (closed) return eye?.closed || null;
+    if (style?.white) return style.white;
+    return style?.full || null;
   }
 
-  function paintEyeFrames(side) {
-    const view = state.view;
+  function paintEye(side) {
     const slot = state.eye[side];
-    const blink = side === 'eye_l' ? view.blinkL : view.blinkR;
-    const fade = clamp(slot.fade, 0, 1);
-    const cur = eyeEntry(side, slot.id) || eyeEntry(side, eyeFrameName(blink));
-    const prev = slot.prev !== slot.id ? eyeEntry(side, slot.prev) : null;
-    if (fade < 0.999 && prev && prev !== cur) {
+    const view = state.view;
+    const closed = slot.id === 'closed';
+    const graphic = eyeGraphic(side, closed);
+    const layered = !closed && Boolean(resolveStyle(state.manifest, side, state.eyeStyle).style?.white);
+    if (graphic && !layered) {
       ctx.save();
-      ctx.globalAlpha = 1 - fade;
-      paintImage(prev);
+      ctx.translate(view.gazeX * 3, view.gazeY * 2);
+      if (state.useShadow) paintShadow(graphic);
+      if (state.useEdge) paintEdge(graphic, state.edgeOx, state.edgeAlpha);
       ctx.restore();
     }
-    if (cur) {
-      ctx.save();
-      ctx.globalAlpha = fade < 0.999 && prev && prev !== cur ? fade : 1;
-      paintImage(cur);
-      ctx.restore();
-    }
-    return cur;
+    eyePainter.paint(ctx, {
+      manifest: state.manifest,
+      side,
+      styleId: state.eyeStyle,
+      closed,
+      prevClosed: slot.prev === 'closed',
+      fade: slot.fade,
+      gazeX: view.gazeX,
+      gazeY: view.gazeY,
+      getImage: (file) => sourceOf(file),
+      paintImage,
+    });
   }
 
   function paintMouth() {
@@ -1322,7 +1400,7 @@ export function createPuppet(canvas) {
     const heart = state.manifest.extras.heart;
     if (!heart) return;
     const view = state.view;
-    const sc = clamp(view.heartScale, 1, 1.1);
+    const sc = clamp(view.heartScale, 1, 1.18);
     const pivot = pivotOf(heart);
     ctx.save();
     applyBody();
@@ -1341,6 +1419,144 @@ export function createPuppet(canvas) {
     ctx.restore();
   }
 
+  function drawGizmo(part) {
+    if (state.highlight !== part.id) return;
+    const box = part.role === 'eye' ? eyeGraphic(part.id, state.eye[part.id]?.id === 'closed') : part;
+    const piv = pivotOf(part);
+    ctx.save();
+    ctx.strokeStyle = '#49c6d6';
+    ctx.lineWidth = 1.7;
+    if (box && box.w > 0 && box.h > 0) {
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(box.x, box.y, box.w, box.h);
+      ctx.setLineDash([]);
+    }
+    ctx.beginPath();
+    ctx.arc(piv.x, piv.y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(73, 198, 214, 0.95)';
+    ctx.fill();
+    ctx.strokeStyle = '#062028';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(piv.x - 12, piv.y);
+    ctx.lineTo(piv.x + 12, piv.y);
+    ctx.moveTo(piv.x, piv.y - 12);
+    ctx.lineTo(piv.x, piv.y + 12);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function onHead(part) {
+    return part?.parent === 'head' || part?.role === 'eye' || part?.role === 'mouth';
+  }
+
+  function headScale() {
+    const view = state.view;
+    return {
+      sx: clamp(1 - 0.14 * Math.abs(view.yaw), 0.86, 1),
+      sy: clamp(1 - 0.06 * Math.abs(view.pitch), 0.94, 1),
+      skew: clamp(view.yaw * 0.06, -0.06, 0.06),
+      offX: clamp(view.yaw * 9, -9, 9),
+      offY: clamp(view.pitch * 9, -9, 9),
+    };
+  }
+
+  function invJump(p) {
+    const feet = state.manifest.pivots.feet;
+    const view = state.view;
+    if (!(view.jumpY !== 0 || Math.abs(view.jumpSy - 1) > 0.001)) return p;
+    const sy = view.jumpSy;
+    const sx = 1 / Math.sqrt(Math.max(0.6, sy));
+    return {
+      x: feet.x + (p.x - feet.x) / sx,
+      y: feet.y + (p.y - (feet.y + view.jumpY)) / sy,
+    };
+  }
+
+  function invBody(p) {
+    const feet = state.manifest.pivots.feet;
+    const view = state.view;
+    const co = Math.cos(view.lean);
+    const si = Math.sin(view.lean);
+    const dx = p.x - feet.x;
+    const dy = p.y - feet.y;
+    return {
+      x: feet.x + (co * dx + si * dy) / (view.bodySx || 1),
+      y: feet.y + (-si * dx + co * dy) / (view.bodySy || 1),
+    };
+  }
+
+  function invHead(p) {
+    const neck = state.manifest.pivots.neck;
+    const view = state.view;
+    const h = headScale();
+    const co = Math.cos(view.rollRad);
+    const si = Math.sin(view.rollRad);
+    const dx = p.x - neck.x - h.offX;
+    const dy = p.y - neck.y - h.offY;
+    const rx = co * dx + si * dy;
+    const ry = -si * dx + co * dy;
+    const lx = rx / (h.sx || 1);
+    return { x: lx + neck.x, y: (ry - h.skew * lx) / (h.sy || 1) + neck.y };
+  }
+
+  function parentFromCss(cssX, cssY, part) {
+    const place = state.place || { scale: 1, ox: 0, oy: 0 };
+    let p = invJump({ x: (cssX - place.ox) / place.scale, y: (cssY - place.oy) / place.scale });
+    p = invBody(p);
+    if (onHead(part)) p = invHead(p);
+    return p;
+  }
+
+  function invLocal(p, part) {
+    const rig = part?.rig || {};
+    const piv = pivotOf(part);
+    const [px, py] = parallaxOf(part);
+    const tx = px * state.view.yaw + (rig.dx || 0);
+    const ty = py * state.view.pitch + (rig.dy || 0);
+    const rot = (state.view.partRot[part?.id] || 0) + (rig.rot || 0) * (Math.PI / 180);
+    const sc = rig.scale > 0 ? rig.scale : 1;
+    const co = Math.cos(rot);
+    const si = Math.sin(rot);
+    const dx = p.x - piv.x - tx;
+    const dy = p.y - piv.y - ty;
+    return { x: piv.x + (co * dx + si * dy) / sc, y: piv.y + (-si * dx + co * dy) / sc };
+  }
+
+  function alphaHit(entry, x, y) {
+    if (!(entry?.w > 0 && entry?.h > 0)) return false;
+    if (x < entry.x || y < entry.y || x > entry.x + entry.w || y > entry.y + entry.h) return false;
+    const img = state.images[entry.file];
+    if (!drawable(img)) return true;
+    let data = state.alpha.get(entry.file);
+    if (!data) {
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth || img.width;
+      c.height = img.naturalHeight || img.height;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      g.drawImage(img, 0, 0);
+      data = g.getImageData(0, 0, c.width, c.height);
+      state.alpha.set(entry.file, data);
+    }
+    const u = Math.min(data.width - 1, Math.max(0, Math.floor(((x - entry.x) / entry.w) * data.width)));
+    const v = Math.min(data.height - 1, Math.max(0, Math.floor(((y - entry.y) / entry.h) * data.height)));
+    return data.data[(v * data.width + u) * 4 + 3] > 20;
+  }
+
+  function hitTest(cssX, cssY) {
+    const parts = state.manifest.parts;
+    for (let i = parts.length - 1; i >= 0; i -= 1) {
+      const part = parts[i];
+      if (!part || part.role === 'mouth' || part.id === 'mouth') continue;
+      if (part.rig && part.rig.visible === false) continue;
+      const entry = part.role === 'eye' ? eyeGraphic(part.id, false) : part;
+      if (!entry?.file) continue;
+      const local = invLocal(parentFromCss(cssX, cssY, part), part);
+      if (alphaHit(entry, local.x, local.y)) return part.id;
+    }
+    return null;
+  }
+
   function drawCharacter(settings) {
     const view = state.view;
     const m = state.manifest;
@@ -1350,6 +1566,10 @@ export function createPuppet(canvas) {
     const edgeAmt = clamp((Math.abs(view.yaw) - 0.05) / 0.25, 0, 1);
     const edgeOx = -Math.sign(view.yaw || 0) * (2 + clamp(Math.abs(view.yaw), 0, 1));
     const edgeAlpha = 0.9 * edgeAmt;
+    state.useShadow = useShadow;
+    state.useEdge = useEdge;
+    state.edgeOx = edgeOx;
+    state.edgeAlpha = edgeAlpha;
     const acc = settings?.accessories || {};
     const { feet, bounds } = { feet: m.pivots.feet, bounds: m.bounds };
 
@@ -1378,10 +1598,13 @@ export function createPuppet(canvas) {
 
     const drawnEyes = { eye_l: false, eye_r: false };
     for (const part of m.parts) {
+      const hidden = part.rig && part.rig.visible === false;
+      if (hidden && state.highlight !== part.id) continue;
       if (part.role === 'mouth') {
+        if (hidden) continue;
         wrapPart(part, () => {
           const center = m.mouthCenter;
-          applyLocal({ id: 'mouth', role: 'mouth', pivot: [center.x, center.y] });
+          applyLocal({ ...part, id: 'mouth', role: 'mouth', pivot: [center.x, center.y] });
           const sy = clamp(0.85 + 0.35 * clamp(view.jaw, 0, 1.2), 0.7, 1.35);
           const sx = clamp(1 + 0.1 * clamp(view.smile, 0, 1.5), 0.85, 1.3);
           ctx.translate(center.x, center.y);
@@ -1398,31 +1621,23 @@ export function createPuppet(canvas) {
         const side = part.id?.startsWith('eye_r') ? 'eye_r' : 'eye_l';
         if (drawnEyes[side]) continue;
         drawnEyes[side] = true;
-        const gazeX = clamp(view.gazeX, -1.5, 1.5) * 3;
-        const gazeY = clamp(view.gazeY, -1.5, 1.5) * 2;
-        const dummy = {
-          id: side,
-          role: 'eye',
-          parent: 'head',
-          pivot: [m.pivots[side].x, m.pivots[side].y],
-        };
-        wrapPart(dummy, () => {
-          applyLocal(dummy, gazeX, gazeY);
-          const slot = state.eye[side];
-          const cur = eyeEntry(side, slot.id);
-          if (useShadow && cur) paintShadow(cur);
-          if (useEdge && cur) paintEdge(cur, edgeOx, edgeAlpha);
-          paintEyeFrames(side);
+        wrapPart(part, () => {
+          applyLocal(part);
+          if (!hidden) paintEye(side);
+          drawGizmo(part);
         });
         continue;
       }
-      if (!part.file) continue;
+      if (!part.file && state.highlight !== part.id) continue;
       wrapPart(part, () => {
         applyLocal(part);
-        if (useShadow) paintShadow(part);
-        if (useEdge && part.parent === 'head') paintEdge(part, edgeOx, edgeAlpha);
-        paintImage(part);
-        if (part.id === 'ear_r' && acc.bow) drawBow(ctx, part);
+        if (!hidden && part.file) {
+          if (useShadow) paintShadow(part);
+          if (useEdge && part.parent === 'head') paintEdge(part, edgeOx, edgeAlpha);
+          paintImage(part);
+          if (part.id === 'ear_r' && acc.bow) drawBow(ctx, part);
+        }
+        drawGizmo(part);
       });
       if (part.id === 'body') paintHeart();
     }
@@ -1430,12 +1645,27 @@ export function createPuppet(canvas) {
     ctx.save();
     applyBody();
     applyHead();
-    if (acc.glasses) drawGlasses(ctx, m.pivots, m.byId.eye_l_open || m.byId.eye_l_half, m.byId.eye_r_open || m.byId.eye_r_half);
+    if (acc.glasses) {
+      const left = resolveStyle(m, 'l', state.eyeStyle).style;
+      const right = resolveStyle(m, 'r', state.eyeStyle).style;
+      drawGlasses(ctx, m.pivots, left?.full || left?.white, right?.full || right?.white);
+    }
     if (acc.flowerCrown) drawFlowerCrown(ctx, m.byId.bangs, m.pivots.headTop);
     if (acc.star) drawStarSticker(ctx, m.pivots.eye_r.x + 40, m.pivots.eye_r.y + 30, 14);
     if (acc.headphones && m.byId.human_ears) drawHeadphones(ctx, m.pivots, m.byId.human_ears);
     if (acc.blush) drawBlush(ctx, m.pivots);
     if (acc.sparkles) drawSparkles(ctx, state.time, m.pivots);
+    ctx.restore();
+
+    ctx.save();
+    applyBody();
+    sleeves.draw(ctx, {
+      shadow: useShadow,
+      edge: useEdge,
+      filter: styleById(settings?.style).filter,
+      time: state.time,
+      getImage: (file) => sourceOf(file),
+    });
     ctx.restore();
 
     ctx.restore();
@@ -1479,6 +1709,7 @@ export function createPuppet(canvas) {
     if (!Number.isFinite(scale) || scale <= 0) scale = 1;
     const ox = cssW / 2 - cx * scale;
     const oy = cssH / 2 - cy * scale;
+    state.place = { scale, ox, oy, dpr };
     ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
@@ -1493,7 +1724,14 @@ export function createPuppet(canvas) {
     } catch {
       json = null;
     }
+    state.source = json;
     state.manifest = normalizeManifest(json);
+    for (const part of state.manifest.parts) stampPart(part);
+    state.base = captureBase(state.manifest);
+    state.rigStore = loadOverrides();
+    if (state.rigStore) applyRigData(state.manifest, state.rigStore);
+    reindex();
+    sleeves.bind(state.manifest);
     const files = collectFiles(state.manifest);
     const images = {};
     await Promise.all(files.map(async (file) => {
@@ -1516,6 +1754,35 @@ export function createPuppet(canvas) {
     resize,
     triggerJump() {
       state.jumpT = 0;
+    },
+    installOverrides,
+    hitTest,
+    parentPoint(cssX, cssY, partId) {
+      const part = state.manifest.byId[partId];
+      if (!part) return null;
+      return parentFromCss(cssX, cssY, part);
+    },
+    resetPart(id) {
+      const part = state.manifest.byId[id];
+      const saved = state.base?.parts?.[id];
+      if (!part || !saved) return;
+      part.rig = { ...saved.rig };
+      if (saved.pivot) part.pivot = [saved.pivot[0], saved.pivot[1]];
+    },
+    resetAll() {
+      installOverrides(null);
+    },
+    setHighlight(id) {
+      state.highlight = id || null;
+    },
+    getManifest() {
+      return state.manifest;
+    },
+    getSource() {
+      return state.source;
+    },
+    getStore() {
+      return state.rigStore;
     },
   };
 }
