@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Avatar VTuber anime original en el navegador, con seguimiento de cara y brazos."
+    />
+    <title>Miku VTuber</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect fill='%230c1114' width='64' height='64' rx='14'/%3E%3Ccircle cx='32' cy='28' r='12' fill='%23ffd2b8'/%3E%3Cpath d='M18 30c-6 10-6 24-2 30' stroke='%2339c5bb' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3Cpath d='M46 30c6 10 6 24 2 30' stroke='%2339c5bb' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="topbar">
+        <div class="brand">
+          <span class="logo" aria-hidden="true"></span>
+          <div>
+            <strong>Miku VTuber</strong>
+            <p id="status" role="status">Iniciando…</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button id="btn-start-top" type="button" class="primary">Activar cámara</button>
+          <button id="btn-stop" type="button" hidden>Detener cámara</button>
+          <button id="btn-preview" type="button" aria-pressed="true">Vista previa</button>
+          <button id="btn-landmarks" type="button" aria-pressed="false">Puntos</button>
+          <button id="btn-panel" type="button" aria-expanded="true">Personalizar</button>
+        </div>
+      </header>
+      <div id="layout" class="panel-open">
+        <section id="stage">
+          <canvas id="avatar" aria-label="Avatar VTuber"></canvas>
+          <div id="preview" hidden>
+            <video id="webcam" playsinline autoplay muted></video>
+            <canvas id="landmarks" aria-hidden="true"></canvas>
+          </div>
+          <div id="start-screen">
+            <div class="card">
+              <p class="eyebrow">Avatar en el navegador</p>
+              <h1>Miku VTuber</h1>
+              <p class="lead">
+                Una idol anime original que copia tu cara y tus brazos.
+                El vídeo no sale de este dispositivo.
+              </p>
+              <div class="card-actions">
+                <button id="btn-start" type="button" class="primary">Activar cámara</button>
+                <button id="btn-demo" type="button">Continuar en modo demo</button>
+              </div>
+              <p id="start-status" class="start-status"></p>
+            </div>
+          </div>
+          <button id="btn-exit-stream" type="button" hidden>Salir del modo stream</button>
+        </section>
+        <aside id="panel" aria-label="Personalización">
+          <div class="panel-head">
+            <h2>Personalizar</h2>
+            <button id="btn-close-panel" type="button">Cerrar</button>
+          </div>
+          <div class="panel-scroll">
+            <section>
+              <h3>Atuendos</h3>
+              <div id="outfit-list" class="choice-grid"></div>
+            </section>
+            <section>
+              <h3>Paleta</h3>
+              <div id="palette-list" class="choice-grid"></div>
+            </section>
+            <section>
+              <h3>Colores</h3>
+              <label class="color-row">Cabello <input id="color-hair" type="color" /></label>
+              <label class="color-row">Ojos <input id="color-eye" type="color" /></label>
+              <label class="color-row">Tono de piel <input id="color-skin" type="color" /></label>
+              <label class="color-row">Acento del atuendo <input id="color-accent" type="color" /></label>
+              <div id="skin-list" class="choice-grid skins"></div>
+            </section>
+            <section>
+              <h3>Accesorios</h3>
+              <div id="accessory-list" class="toggle-grid"></div>
+            </section>
+            <section>
+              <h3>Peinado</h3>
+              <div id="hair-list" class="choice-grid"></div>
+            </section>
+            <section>
+              <h3>Expresión</h3>
+              <label class="slider-row">
+                <span>Sensibilidad de la boca <b id="sens-mouth-val"></b></span>
+                <input id="sens-mouth" type="range" min="0.2" max="2" step="0.05" />
+              </label>
+              <label class="slider-row">
+                <span>Sensibilidad del parpadeo <b id="sens-blink-val"></b></span>
+                <input id="sens-blink" type="range" min="0.2" max="2" step="0.05" />
+              </label>
+              <label class="slider-row">
+                <span>Movimiento de brazos <b id="sens-arms-val"></b></span>
+                <input id="sens-arms" type="range" min="0.2" max="1.8" step="0.05" />
+              </label>
+              <label class="slider-row">
+                <span>Suavizado <b id="sens-smooth-val"></b></span>
+                <input id="sens-smooth" type="range" min="0" max="1" step="0.01" />
+              </label>
+            </section>
+            <section>
+              <h3>Fondo</h3>
+              <div id="bg-list" class="choice-grid"></div>
+              <label id="bg-color-wrap" class="color-row">
+                Color personalizado
+                <input id="color-bg" type="color" />
+              </label>
+            </section>
+            <section class="actions">
+              <button id="btn-save" type="button">Guardar</button>
+              <button id="btn-reset" type="button">Restablecer</button>
+              <button id="btn-random" type="button">Aleatorio</button>
+              <button id="btn-capture" type="button">Captura</button>
+              <button id="btn-stream" type="button" class="wide">Pantalla completa / Modo stream</button>
+            </section>
+            <p class="fine">
+              Diseño original de fan, inspirado en el estilo de las idols virtuales.
+              No está afiliado a ningún personaje comercial. El seguimiento ocurre en tu navegador.
+            </p>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <div id="backdrop" hidden></div>
+    <div id="toast" role="status"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
