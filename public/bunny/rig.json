@@ -1,61 +1,502 @@
 {
- "eye_l": {
-  "cx": 236.0,
-  "cy": 305.0,
-  "x0": 188.7,
-  "y0": 282.0,
-  "x1": 283.3,
-  "y1": 328.0
- },
- "eye_r": {
-  "cx": 372.3,
-  "cy": 286.0,
-  "x0": 330.0,
-  "y0": 265.3,
-  "x1": 414.7,
-  "y1": 306.7
- },
- "mouth": {
-  "cx": 308.7,
-  "cy": 334.7
- },
- "pivots": {
-  "neck": [
-   310.0,
-   366.7
-  ],
-  "ear_l": [
-   240.0,
-   200.0
-  ],
-  "ear_r": [
-   383.3,
-   194.7
-  ],
-  "hair_l": [
-   193.3,
-   356.7
-  ],
-  "hair_r": [
-   426.7,
-   300.0
-  ],
-  "heart": [
-   312.0,
-   400.0
-  ],
-  "feet": [
-   310.0,
-   560.0
-  ]
- },
- "size": [
+ "rigSize": [
   600,
   600
  ],
- "assetSize": [
-  900,
-  900
+ "pxPerUnit": 2.0,
+ "psdOffset": [
+  125.0,
+  39.0
  ],
- "note": "All coordinates are rig units (600x600). PNGs are 900x900: draw them with drawImage(img, 0, 0, 600, 600)."
+ "psdScale": 3.0,
+ "source": "vtuber1.psd",
+ "parts": [
+  {
+   "file": "hair_back.png",
+   "x": 105.0,
+   "y": 213.67,
+   "w": 369.33,
+   "h": 282.33,
+   "px": [
+    739,
+    565
+   ],
+   "psdName": "pelo atras",
+   "parent": "head",
+   "role": "hair",
+   "pivot": [
+    291.67,
+    227.0
+   ],
+   "visibleInPsd": true,
+   "id": "hair_back"
+  },
+  {
+   "file": "ear_r.png",
+   "x": 300.67,
+   "y": 24.33,
+   "w": 124.0,
+   "h": 183.67,
+   "px": [
+    248,
+    367
+   ],
+   "psdName": "oreja derecha",
+   "parent": "head",
+   "role": "ear",
+   "pivot": [
+    345.0,
+    187.0
+   ],
+   "visibleInPsd": true,
+   "id": "ear_r"
+  },
+  {
+   "file": "ear_l.png",
+   "x": 152.33,
+   "y": 34.33,
+   "w": 216.0,
+   "h": 178.0,
+   "px": [
+    432,
+    356
+   ],
+   "psdName": "oreja izquierda",
+   "parent": "head",
+   "role": "ear",
+   "pivot": [
+    235.0,
+    190.33
+   ],
+   "visibleInPsd": true,
+   "id": "ear_l"
+  },
+  {
+   "file": "lock_back_r.png",
+   "x": 371.33,
+   "y": 235.67,
+   "w": 158.33,
+   "h": 113.0,
+   "px": [
+    317,
+    226
+   ],
+   "psdName": "mechon atras",
+   "parent": "head",
+   "role": "hair",
+   "pivot": [
+    391.67,
+    250.33
+   ],
+   "visibleInPsd": true,
+   "id": "lock_back_r"
+  },
+  {
+   "file": "lock_back_l.png",
+   "x": 69.67,
+   "y": 282.0,
+   "w": 161.0,
+   "h": 113.33,
+   "px": [
+    322,
+    227
+   ],
+   "psdName": "mechon atras copia",
+   "parent": "head",
+   "role": "hair",
+   "pivot": [
+    221.67,
+    293.67
+   ],
+   "visibleInPsd": true,
+   "id": "lock_back_l"
+  },
+  {
+   "file": "human_ears.png",
+   "x": 107.0,
+   "y": 229.33,
+   "w": 360.33,
+   "h": 106.67,
+   "px": [
+    721,
+    213
+   ],
+   "psdName": "orejas",
+   "parent": "head",
+   "role": "static",
+   "pivot": [
+    294.33,
+    287.0
+   ],
+   "visibleInPsd": true,
+   "id": "human_ears"
+  },
+  {
+   "file": "face.png",
+   "x": 112.33,
+   "y": 184.67,
+   "w": 319.67,
+   "h": 181.33,
+   "px": [
+    639,
+    363
+   ],
+   "psdName": "cabeza",
+   "parent": "head",
+   "role": "static",
+   "pivot": [
+    294.33,
+    353.67
+   ],
+   "visibleInPsd": true,
+   "mouthErased": true,
+   "id": "face"
+  },
+  {
+   "parent": "head",
+   "role": "mouth",
+   "id": "mouth"
+  },
+  {
+   "file": "strand_l.png",
+   "x": 69.0,
+   "y": 257.67,
+   "w": 127.33,
+   "h": 186.0,
+   "px": [
+    255,
+    372
+   ],
+   "psdName": "mechon der arriba 2",
+   "parent": "head",
+   "role": "hair",
+   "pivot": [
+    158.33,
+    263.67
+   ],
+   "visibleInPsd": true,
+   "id": "strand_l"
+  },
+  {
+   "file": "curl_l.png",
+   "x": 76.0,
+   "y": 240.0,
+   "w": 143.33,
+   "h": 111.67,
+   "px": [
+    287,
+    223
+   ],
+   "psdName": "mechon der arriba 1",
+   "parent": "head",
+   "role": "hair",
+   "pivot": [
+    211.67,
+    250.33
+   ],
+   "visibleInPsd": true,
+   "id": "curl_l"
+  },
+  {
+   "file": "body.png",
+   "x": 186.33,
+   "y": 344.33,
+   "w": 233.0,
+   "h": 226.67,
+   "px": [
+    466,
+    453
+   ],
+   "psdName": "cuerpo",
+   "parent": "body",
+   "role": "static",
+   "pivot": [
+    301.67,
+    570.33
+   ],
+   "visibleInPsd": true,
+   "id": "body"
+  },
+  {
+   "file": "strand_r.png",
+   "x": 356.33,
+   "y": 207.0,
+   "w": 98.67,
+   "h": 279.67,
+   "px": [
+    197,
+    559
+   ],
+   "psdName": "mechon izq delante",
+   "parent": "head",
+   "role": "hair",
+   "pivot": [
+    401.67,
+    220.33
+   ],
+   "visibleInPsd": true,
+   "id": "strand_r"
+  },
+  {
+   "file": "bangs.png",
+   "x": 119.33,
+   "y": 104.33,
+   "w": 363.0,
+   "h": 180.33,
+   "px": [
+    726,
+    361
+   ],
+   "psdName": "cabeza flequillo",
+   "parent": "head",
+   "role": "static",
+   "pivot": [
+    294.33,
+    287.0
+   ],
+   "visibleInPsd": true,
+   "id": "bangs"
+  },
+  {
+   "file": "eye_l_half.png",
+   "x": 126.0,
+   "y": 277.67,
+   "w": 140.0,
+   "h": 44.67,
+   "px": [
+    280,
+    89
+   ],
+   "psdName": "ojo der B",
+   "parent": "head",
+   "role": "eye",
+   "pivot": [
+    197.0,
+    301.0
+   ],
+   "visibleInPsd": false,
+   "id": "eye_l_half"
+  },
+  {
+   "file": "eye_l_open.png",
+   "x": 126.0,
+   "y": 279.67,
+   "w": 142.33,
+   "h": 42.67,
+   "px": [
+    285,
+    85
+   ],
+   "psdName": "ojo der A",
+   "parent": "head",
+   "role": "eye",
+   "pivot": [
+    197.0,
+    301.0
+   ],
+   "visibleInPsd": true,
+   "id": "eye_l_open"
+  },
+  {
+   "file": "eye_r_open.png",
+   "x": 305.0,
+   "y": 246.33,
+   "w": 134.67,
+   "h": 55.67,
+   "px": [
+    269,
+    111
+   ],
+   "psdName": "ojo izq A",
+   "parent": "head",
+   "role": "eye",
+   "pivot": [
+    372.33,
+    274.33
+   ],
+   "visibleInPsd": true,
+   "id": "eye_r_open"
+  },
+  {
+   "file": "eye_r_half.png",
+   "x": 308.67,
+   "y": 252.67,
+   "w": 120.0,
+   "h": 44.67,
+   "px": [
+    240,
+    89
+   ],
+   "psdName": "ojo izq B",
+   "parent": "head",
+   "role": "eye",
+   "pivot": [
+    372.33,
+    274.33
+   ],
+   "visibleInPsd": false,
+   "id": "eye_r_half"
+  }
+ ],
+ "extras": {
+  "eye_l_closed": {
+   "file": "eye_l_closed.png",
+   "x": 140.33,
+   "y": 299.0,
+   "w": 117.67,
+   "h": 23.33,
+   "px": [
+    235,
+    47
+   ],
+   "parent": "head",
+   "role": "eye"
+  },
+  "eye_r_closed": {
+   "file": "eye_r_closed.png",
+   "x": 314.33,
+   "y": 277.0,
+   "w": 112.0,
+   "h": 27.33,
+   "px": [
+    224,
+    55
+   ],
+   "parent": "head",
+   "role": "eye"
+  },
+  "heart": {
+   "file": "heart.png",
+   "x": 268.67,
+   "y": 364.67,
+   "w": 56.33,
+   "h": 51.0,
+   "px": [
+    113,
+    102
+   ],
+   "parent": "body",
+   "role": "heart",
+   "pivot": [
+    295.67,
+    390.33
+   ]
+  }
+ },
+ "mouths": {
+  "neutral": {
+   "file": "mouth_neutral.png",
+   "x": 266.0,
+   "y": 316.33,
+   "w": 47.0,
+   "h": 24.33,
+   "px": [
+    94,
+    49
+   ]
+  },
+  "small": {
+   "file": "mouth_small.png",
+   "x": 276.33,
+   "y": 323.0,
+   "w": 27.33,
+   "h": 16.33,
+   "px": [
+    55,
+    33
+   ]
+  },
+  "a": {
+   "file": "mouth_a.png",
+   "x": 272.33,
+   "y": 322.0,
+   "w": 35.33,
+   "h": 25.33,
+   "px": [
+    71,
+    51
+   ]
+  },
+  "o": {
+   "file": "mouth_o.png",
+   "x": 279.33,
+   "y": 317.67,
+   "w": 21.67,
+   "h": 25.67,
+   "px": [
+    43,
+    51
+   ]
+  },
+  "smile": {
+   "file": "mouth_smile.png",
+   "x": 268.33,
+   "y": 319.0,
+   "w": 43.33,
+   "h": 24.33,
+   "px": [
+    87,
+    49
+   ]
+  }
+ },
+ "mouthCenter": [
+  290.0,
+  327.67
+ ],
+ "pivots": {
+  "neck": [
+   294.33,
+   353.67
+  ],
+  "feet": [
+   301.67,
+   570.33
+  ],
+  "eye_l": [
+   197.0,
+   301.0
+  ],
+  "eye_r": [
+   372.33,
+   274.33
+  ],
+  "headTop": [
+   294.33,
+   200.33
+  ]
+ },
+ "bounds": {
+  "x0": 69.33,
+  "y0": 25.0,
+  "x1": 530.33,
+  "y1": 571.0
+ },
+ "drawOrder": [
+  "hair_back",
+  "ear_r",
+  "ear_l",
+  "lock_back_r",
+  "lock_back_l",
+  "human_ears",
+  "face",
+  "mouth",
+  "strand_l",
+  "curl_l",
+  "body",
+  "strand_r",
+  "bangs",
+  "eye_l_half",
+  "eye_l_open",
+  "eye_r_open",
+  "eye_r_half"
+ ],
+ "blink": {
+  "frames": [
+   "open",
+   "half",
+   "closed"
+  ],
+  "note": "blink<0.33 -> *_open, <0.7 -> *_half (her B layer), else *_closed (generated lash arc; face skin shows under)"
+ }
 }

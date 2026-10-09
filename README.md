@@ -62,21 +62,18 @@ Arte original de Katherine Sánchez Carrasco.
 
 Ideas de seguimiento (filtro One Euro, rechazo de saltos, visemas, ocultar UI con H) inspiradas en luloxi/vtuber (https://github.com/luloxi/vtuber); código propio.
 
-Las láminas de `public/bunny/` se reconstruyen con `tools/bunny/build.py` (Python, Pillow, numpy, opencv y scipy), que recorta `tools/bunny/orig.png`:
+Las láminas de `public/bunny/` salen del PSD de la artista con `tools/psd/build_from_psd.py` (Python, [psd-tools](https://pypi.org/project/psd-tools/)). Cada capa se recorta a su contenido y se describe en `public/bunny/rig.json` (espacio de 600×600 unidades, 2 píxeles por unidad). La marioneta carga solo ese manifiesto: el orden de dibujo, el padre (`head` o `body`), el rol y el pivote de cada recorte.
+
+La boca `neutral` es la sonrisa original de la ilustración. El resto de visemas (`small`, `a`, `o`, `smile`) y los arcos de pestaña de los ojos cerrados (`eye_l_closed`, `eye_r_closed`) se generan en el mismo script.
 
 ```bash
-cd tools/bunny && OUT=../../public/bunny python build.py
+python3 tools/psd/build_from_psd.py ruta/al/dibujo.psd
+# o, con la salida en public/bunny:
+OUT=public/bunny python3 tools/psd/build_from_psd.py ruta/al/dibujo.psd
 ```
+
+Requiere Python 3, `psd-tools`, Pillow, numpy y opencv-python.
 
 ## Aviso
 
 El nombre PaRappa se usa solo para describir el estilo de animación en papel. Esta aplicación no está afiliada con ese juego ni con sus titulares.
-
-### Regenerar las capas del dibujo
-
-```bash
-cd tools/bunny
-python3 prepare.py   # orig.png (2000 px) -> work2.png (lienzo 900x900)
-OUT=../../public/bunny python3 build.py   # recorta capas, ojos, bocas y rig.json
-```
-Requiere Pillow, numpy, opencv-python-headless y scipy.

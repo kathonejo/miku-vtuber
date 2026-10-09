@@ -1,33 +1,28 @@
-import { clamp, finite, hash01, smoothstep, Spring1D } from './filters.js';
+import { clamp, finite, hash01, Spring1D } from './filters.js';
 import { isChroma, styleById } from './settings.js';
 
-const RIG_SIZE = 600;
 const MAX_ROLL = (10 * Math.PI) / 180;
 const MAX_EAR = (7 * Math.PI) / 180;
-const MAX_HAIR = (2.5 * Math.PI) / 180;
+const MAX_HAIR = (3 * Math.PI) / 180;
+const MAX_HAIR_BACK = (1.5 * Math.PI) / 180;
 const MAX_LEAN = (4 * Math.PI) / 180;
-const FIT = { x0: 100, y0: 25, x1: 500, y1: 570 };
+const EYE_FADE = 0.05;
+const MOUTH_FADE = 0.06;
 
-const LAYER_NAMES = [
-  'base', 'hair_l', 'hair_r', 'heart',
-  'ear_l', 'ear_r', 'head',
-  'eye_l_white', 'eye_r_white',
-  'eye_l_iris', 'eye_r_iris',
-  'eye_l_mask', 'eye_r_mask',
-  'eye_l_closed', 'eye_r_closed',
-  'mouth_neutral', 'mouth_small', 'mouth_a', 'mouth_o', 'mouth_smile',
-];
-
-const SHADOW_NAMES = ['base', 'hair_l', 'hair_r', 'heart', 'ear_l', 'ear_r', 'head'];
-const PAPER_NAMES = ['ear_l', 'ear_r', 'head'];
-const TINT_NAMES = LAYER_NAMES.filter((name) => !name.endsWith('mask'));
-
-const MOUTH_LAYER = {
-  neutral: 'mouth_neutral',
-  small: 'mouth_small',
-  a: 'mouth_a',
-  o: 'mouth_o',
-  smile: 'mouth_smile',
+/** Parallax inside the head, in rig units, multiplied by normalized yaw/pitch. */
+const PARALLAX = {
+  hair_back: [-4, -2],
+  ear_l: [-3, -2],
+  ear_r: [-3, -2],
+  lock_back_r: [-2, -1],
+  lock_back_l: [-2, -1],
+  human_ears: [-2, 0],
+  face: [0, 0],
+  mouth: [3, 2],
+  strand_l: [1, 0],
+  curl_l: [1, 0],
+  strand_r: [1, 0],
+  bangs: [2, 1],
 };
 
 const INK = '#1c2430';
@@ -40,19 +35,6 @@ const PAL = {
   dress: '#49c6d6',
   white: '#fff5dc',
 };
-
-/** Corona sobre el flequillo, y≈205, entre los mechones (x 160..470). */
-function flowerList() {
-  const spec = [
-    [220, 212, 11, PAL.orange],
-    [268, 204, 13, PAL.dress],
-    [316, 198, 12, PAL.white],
-    [364, 198, 14, PAL.hair],
-    [412, 204, 12, PAL.orange],
-    [458, 212, 11, PAL.dress],
-  ];
-  return spec.map(([x, y, r, c], i) => ({ x, y, r, c, s: i + 1 }));
-}
 
 const PARAPPA_DOTS = Array.from({ length: 16 }, (_, i) => ({
   x: ((i * 137) % 100) / 100,
@@ -73,15 +55,15 @@ function assetUrl(file) {
   return `${base}bunny/${file}`;
 }
 
-function loadImage(name) {
+function loadImage(file) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => {
-      console.warn(`No se pudo cargar ${name}`);
+      console.warn(`No se pudo cargar ${file}`);
       resolve(img);
     };
-    img.src = assetUrl(`${name}.png`);
+    img.src = assetUrl(file);
   });
 }
 
@@ -103,72 +85,116 @@ function xy(v, fb) {
   return fb;
 }
 
-function defaultRig() {
+function emptyManifest() {
   return {
-    neck: { x: 310, y: 366.7 },
-    earL: { x: 240, y: 200 },
-    earR: { x: 383.3, y: 194.7 },
-    hairL: { x: 193.3, y: 356.7 },
-    hairR: { x: 426.7, y: 300 },
-    heart: { x: 312, y: 400 },
-    feet: { x: 310, y: 560 },
-    eyeL: { x: 236, y: 305, x0: 188.7, y0: 282, x1: 283.3, y1: 328 },
-    eyeR: { x: 372.3, y: 286, x0: 330, y0: 265.3, x1: 414.7, y1: 306.7 },
-    mouth: { x: 308.7, y: 334.7 },
-    assetW: 900,
-    assetH: 900,
+    rigSize: [600, 600],
+    pxPerUnit: 2,
+    parts: [],
+    mouths: {},
+    extras: {},
+    mouthCenter: { x: 290, y: 328 },
+    pivots: {
+      neck: { x: 294.33, y: 353.67 },
+      feet: { x: 301.67, y: 570.33 },
+      eye_l: { x: 197, y: 301 },
+      eye_r: { x: 372.33, y: 274.33 },
+      headTop: { x: 294.33, y: 200.33 },
+    },
+    bounds: { x0: 69.33, y0: 25, x1: 530.33, y1: 571 },
+    byId: {},
+    eyeSlot: { eye_l: null, eye_r: null },
   };
 }
 
-function normalizeRig(json) {
-  const rig = defaultRig();
-  if (!json || typeof json !== 'object') return rig;
+function normalizeManifest(json) {
+  const m = emptyManifest();
+  if (!json || typeof json !== 'object') return m;
+  if (Array.isArray(json.rigSize) && json.rigSize.length >= 2) {
+    m.rigSize = [finite(json.rigSize[0], 600), finite(json.rigSize[1], 600)];
+  }
+  m.pxPerUnit = finite(json.pxPerUnit, 2);
   const p = json.pivots || {};
-  rig.neck = xy(p.neck, rig.neck);
-  rig.earL = xy(p.ear_l, rig.earL);
-  rig.earR = xy(p.ear_r, rig.earR);
-  rig.hairL = xy(p.hair_l, rig.hairL);
-  rig.hairR = xy(p.hair_r, rig.hairR);
-  rig.heart = xy(p.heart, rig.heart);
-  rig.feet = xy(p.feet, rig.feet);
-  if (Array.isArray(json.assetSize) && json.assetSize.length >= 2) {
-    const w = Math.round(finite(json.assetSize[0], rig.assetW));
-    const h = Math.round(finite(json.assetSize[1], rig.assetH));
-    if (w > 0 && h > 0) {
-      rig.assetW = w;
-      rig.assetH = h;
+  m.pivots.neck = xy(p.neck, m.pivots.neck);
+  m.pivots.feet = xy(p.feet, m.pivots.feet);
+  m.pivots.eye_l = xy(p.eye_l, m.pivots.eye_l);
+  m.pivots.eye_r = xy(p.eye_r, m.pivots.eye_r);
+  m.pivots.headTop = xy(p.headTop, m.pivots.headTop);
+  if (json.bounds && typeof json.bounds === 'object') {
+    m.bounds = {
+      x0: finite(json.bounds.x0, m.bounds.x0),
+      y0: finite(json.bounds.y0, m.bounds.y0),
+      x1: finite(json.bounds.x1, m.bounds.x1),
+      y1: finite(json.bounds.y1, m.bounds.y1),
+    };
+  }
+  m.mouthCenter = xy(json.mouthCenter, m.mouthCenter);
+  m.parts = Array.isArray(json.parts) ? json.parts.map((part) => ({ ...part })) : [];
+  m.mouths = json.mouths && typeof json.mouths === 'object' ? json.mouths : {};
+  m.extras = json.extras && typeof json.extras === 'object' ? json.extras : {};
+  const byId = {};
+  const eyeSlot = { eye_l: null, eye_r: null };
+  for (const part of m.parts) {
+    if (part?.id) byId[part.id] = part;
+    if (part?.role === 'eye' && part.id) {
+      const side = part.id.startsWith('eye_r') ? 'eye_r' : 'eye_l';
+      if (!eyeSlot[side]) eyeSlot[side] = part;
     }
   }
-  if (json.eye_l) {
-    rig.eyeL = {
-      x: finite(json.eye_l.cx, rig.eyeL.x),
-      y: finite(json.eye_l.cy, rig.eyeL.y),
-      x0: finite(json.eye_l.x0, rig.eyeL.x0),
-      y0: finite(json.eye_l.y0, rig.eyeL.y0),
-      x1: finite(json.eye_l.x1, rig.eyeL.x1),
-      y1: finite(json.eye_l.y1, rig.eyeL.y1),
-    };
-  }
-  if (json.eye_r) {
-    rig.eyeR = {
-      x: finite(json.eye_r.cx, rig.eyeR.x),
-      y: finite(json.eye_r.cy, rig.eyeR.y),
-      x0: finite(json.eye_r.x0, rig.eyeR.x0),
-      y0: finite(json.eye_r.y0, rig.eyeR.y0),
-      x1: finite(json.eye_r.x1, rig.eyeR.x1),
-      y1: finite(json.eye_r.y1, rig.eyeR.y1),
-    };
-  }
-  if (json.mouth) {
-    rig.mouth = {
-      x: finite(json.mouth.cx, rig.mouth.x),
-      y: finite(json.mouth.cy, rig.mouth.y),
-    };
-  }
-  return rig;
+  m.byId = byId;
+  m.eyeSlot = eyeSlot;
+  return m;
 }
 
-function pixelSize(img, fallbackW = 900, fallbackH = 900) {
+function collectFiles(manifest) {
+  const files = [];
+  const add = (file) => {
+    if (typeof file === 'string' && file && !files.includes(file)) files.push(file);
+  };
+  for (const part of manifest.parts) add(part.file);
+  for (const mouth of Object.values(manifest.mouths || {})) add(mouth?.file);
+  for (const extra of Object.values(manifest.extras || {})) add(extra?.file);
+  return files;
+}
+
+function parallaxOf(part) {
+  if (!part) return [0, 0];
+  if (part.role === 'eye' || (part.id && String(part.id).startsWith('eye_'))) return [4, 3];
+  if (part.id && PARALLAX[part.id]) return PARALLAX[part.id];
+  if (part.role === 'hair') return [1, 0];
+  if (part.role === 'ear') return [-3, -2];
+  if (part.role === 'mouth') return [3, 2];
+  return [0, 0];
+}
+
+function pivotOf(part) {
+  if (Array.isArray(part?.pivot) && part.pivot.length >= 2) {
+    return { x: +part.pivot[0], y: +part.pivot[1] };
+  }
+  return {
+    x: finite(part?.x, 0) + finite(part?.w, 0) / 2,
+    y: finite(part?.y, 0) + finite(part?.h, 0) / 2,
+  };
+}
+
+function hairSign(id) {
+  if (id === 'hair_back') return 0.35;
+  if (id.includes('_l')) return 1;
+  if (id.includes('_r')) return -1;
+  return 0.5;
+}
+
+function hairMax(id) {
+  return id === 'hair_back' ? MAX_HAIR_BACK : MAX_HAIR;
+}
+
+function eyeFrameName(blink) {
+  const b = clamp(blink, 0, 1);
+  if (b < 0.33) return 'open';
+  if (b < 0.7) return 'half';
+  return 'closed';
+}
+
+function pixelSize(img, fallbackW = 2, fallbackH = 2) {
   const w = Math.round(img?.naturalWidth || img?.width || fallbackW);
   const h = Math.round(img?.naturalHeight || img?.height || fallbackH);
   return { w: w > 0 ? w : fallbackW, h: h > 0 ? h : fallbackH };
@@ -200,14 +226,14 @@ function bakePaper(img) {
   return c;
 }
 
-function bakeSoft(sil) {
+function bakeSoft(sil, pxPerUnit) {
   const w = sil.width;
   const h = sil.height;
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const g = c.getContext('2d');
-  const blur = 4.5 * (w / RIG_SIZE);
+  const blur = 4.5 * Math.max(0.5, finite(pxPerUnit, 2));
   try {
     g.filter = `blur(${blur}px)`;
     g.drawImage(sil, 0, 0);
@@ -322,19 +348,6 @@ function springTune(smoothing) {
   };
 }
 
-function neckFollow(neck, feet, sx, sy, lean) {
-  const dx = neck.x - feet.x;
-  const dy = neck.y - feet.y;
-  const x1 = dx * sx;
-  const y1 = dy * sy;
-  const c = Math.cos(lean);
-  const s = Math.sin(lean);
-  return {
-    x: c * x1 - s * y1 - dx,
-    y: s * x1 + c * y1 - dy,
-  };
-}
-
 function roundBox(ctx, x, y, w, h, r) {
   ctx.beginPath();
   const radius = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2));
@@ -396,9 +409,9 @@ function markerEllipse(ctx, x, y, rx, ry, fill, stroke, seed, rot = 0) {
   ctx.globalAlpha = 1;
 }
 
-function drawBow(ctx, rig) {
-  const x = rig.earR.x + 11.7;
-  const y = rig.earR.y - 154.7;
+function drawBow(ctx, ear) {
+  const x = ear.x + ear.w * 0.55;
+  const y = ear.y + 12;
   markerEllipse(ctx, x - 14, y + 2, 15, 11, PAL.orange, PAL.green, 21, -0.4);
   markerEllipse(ctx, x + 14, y + 1, 15, 11, PAL.hair, PAL.green, 28, 0.35);
   markerEllipse(ctx, x, y + 4, 6.5, 5.5, PAL.orange, INK, 33);
@@ -431,8 +444,29 @@ function drawFlower(ctx, flower) {
   ctx.stroke();
 }
 
-function drawFlowerCrown(ctx) {
-  const flowers = flowerList();
+function flowerList(bangs, headTop) {
+  const y = headTop.y + 10;
+  const x0 = bangs?.x ?? 120;
+  const span = bangs?.w ?? 360;
+  const spec = [
+    [0.12, 8, 11, PAL.orange],
+    [0.28, 2, 13, PAL.dress],
+    [0.44, -4, 12, PAL.white],
+    [0.60, -4, 14, PAL.hair],
+    [0.76, 2, 12, PAL.orange],
+    [0.90, 8, 11, PAL.dress],
+  ];
+  return spec.map(([t, dy, r, c], i) => ({
+    x: x0 + span * t,
+    y: y + dy,
+    r,
+    c,
+    s: i + 1,
+  }));
+}
+
+function drawFlowerCrown(ctx, bangs, headTop) {
+  const flowers = flowerList(bangs, headTop);
   ctx.save();
   const a = flowers[0];
   const b = flowers[flowers.length - 1];
@@ -441,14 +475,19 @@ function drawFlowerCrown(ctx) {
   ctx.restore();
 }
 
-function drawGlasses(ctx, rig) {
-  const eyes = [rig.eyeL, rig.eyeR];
-  const ang = Math.atan2(rig.eyeR.y - rig.eyeL.y, rig.eyeR.x - rig.eyeL.x);
+function drawGlasses(ctx, pivots, eyeL, eyeR) {
+  const rL = 0.4 * (eyeL?.w || 140);
+  const rR = 0.4 * (eyeR?.w || 135);
+  const eyes = [
+    { x: pivots.eye_l.x, y: pivots.eye_l.y, r: rL },
+    { x: pivots.eye_r.x, y: pivots.eye_r.y, r: rR },
+  ];
+  const ang = Math.atan2(pivots.eye_r.y - pivots.eye_l.y, pivots.eye_r.x - pivots.eye_l.x);
   ctx.save();
   for (let n = 0; n < eyes.length; n += 1) {
     const eye = eyes[n];
-    const rx = Math.max((eye.x1 - eye.x0) * 0.55, (eye.x1 - eye.x0) * 0.5 + 4);
-    const ry = Math.max((eye.y1 - eye.y0) * 0.7, (eye.y1 - eye.y0) * 0.5 + 4);
+    const rx = eye.r;
+    const ry = eye.r * 0.72;
     for (let i = 0; i < 3; i += 1) {
       ctx.beginPath();
       ctx.lineWidth = i === 0 ? 5 : 2.6;
@@ -473,11 +512,9 @@ function drawGlasses(ctx, rig) {
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
-  const rxL = Math.max((rig.eyeL.x1 - rig.eyeL.x0) * 0.55, 20);
-  const rxR = Math.max((rig.eyeR.x1 - rig.eyeR.x0) * 0.55, 20);
-  markerLine(ctx, rig.eyeL.x + rxL * 0.75, rig.eyeL.y, rig.eyeR.x - rxR * 0.75, rig.eyeR.y, PAL.lash, 3.4, 90);
-  markerLine(ctx, rig.eyeL.x0 - 2, rig.eyeL.y, rig.eyeL.x0 - 22, rig.eyeL.y + 6, INK, 3, 94);
-  markerLine(ctx, rig.eyeR.x1 + 2, rig.eyeR.y, rig.eyeR.x1 + 22, rig.eyeR.y + 4, INK, 3, 98);
+  markerLine(ctx, eyes[0].x + rL * 0.75, eyes[0].y, eyes[1].x - rR * 0.75, eyes[1].y, PAL.lash, 3.4, 90);
+  markerLine(ctx, eyes[0].x - rL, eyes[0].y, eyes[0].x - rL - 22, eyes[0].y + 6, INK, 3, 94);
+  markerLine(ctx, eyes[1].x + rR, eyes[1].y, eyes[1].x + rR + 22, eyes[1].y + 4, INK, 3, 98);
   ctx.restore();
 }
 
@@ -510,12 +547,10 @@ function drawStarSticker(ctx, x, y, r) {
   ctx.restore();
 }
 
-function drawHeadphones(ctx, rig) {
-  const left = { x: rig.neck.x - 160, y: 300 };
-  const right = { x: rig.neck.x + 170, y: 300 };
-  const y0 = left.y - 28;
-  const y1 = right.y - 28;
-  const ctrlY = 2 * (200 - 0.25 * (y0 + y1));
+function drawHeadphones(ctx, pivots, ears) {
+  const left = { x: ears.x, y: ears.y + ears.h / 2 };
+  const right = { x: ears.x + ears.w, y: ears.y + ears.h / 2 };
+  const topY = pivots.headTop.y;
   ctx.save();
   for (let i = 0; i < 3; i += 1) {
     ctx.beginPath();
@@ -524,8 +559,11 @@ function drawHeadphones(ctx, rig) {
     ctx.strokeStyle = i === 0 ? PAL.green : i === 1 ? PAL.dress : PAL.white;
     ctx.globalAlpha = i === 2 ? 0.35 : 0.92;
     const o = (i - 1) * 1.3;
-    ctx.moveTo(left.x, y0 + o);
-    ctx.quadraticCurveTo(rig.neck.x, ctrlY + o, right.x, y1 + o);
+    // cubic arc whose apex sits on the crown of the hair (~topY - 35), above the bangs
+    const peak = topY - 35 + o;
+    const c = (peak - 0.25 * (left.y - 6)) / 0.75;
+    ctx.moveTo(left.x, left.y - 6 + o);
+    ctx.bezierCurveTo(left.x - 8, c, right.x + 8, c, right.x, right.y - 6 + o);
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
@@ -558,10 +596,10 @@ function drawCup(ctx, x, y) {
   ctx.restore();
 }
 
-function drawBlush(ctx, rig) {
+function drawBlush(ctx, pivots) {
   const spots = [
-    { x: rig.eyeL.x - 8, y: rig.eyeL.y1 + 22, rx: 22, ry: 12 },
-    { x: rig.eyeR.x + 10, y: rig.eyeR.y1 + 24, rx: 20, ry: 11 },
+    { x: pivots.eye_l.x - 8, y: pivots.eye_l.y + 28, rx: 22, ry: 12 },
+    { x: pivots.eye_r.x + 10, y: pivots.eye_r.y + 28, rx: 20, ry: 11 },
   ];
   ctx.save();
   for (const spot of spots) {
@@ -585,9 +623,9 @@ function drawBlush(ctx, rig) {
   ctx.restore();
 }
 
-function sparkList(rig) {
-  const l = { x: rig.eyeL.x - 8, y: rig.eyeL.y1 + 22 };
-  const r = { x: rig.eyeR.x + 10, y: rig.eyeR.y1 + 24 };
+function sparkList(pivots) {
+  const l = { x: pivots.eye_l.x - 8, y: pivots.eye_l.y + 28 };
+  const r = { x: pivots.eye_r.x + 10, y: pivots.eye_r.y + 28 };
   return [
     { x: l.x - 16, y: l.y - 10, s: 5, p: 0.2 },
     { x: l.x + 12, y: l.y + 8, s: 4, p: 1.1 },
@@ -599,9 +637,9 @@ function sparkList(rig) {
   ];
 }
 
-function drawSparkles(ctx, time, rig) {
+function drawSparkles(ctx, time, pivots) {
   ctx.save();
-  for (const spark of sparkList(rig)) {
+  for (const spark of sparkList(pivots)) {
     const tw = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(time * 3.2 + spark.p));
     ctx.save();
     ctx.translate(spark.x, spark.y);
@@ -856,27 +894,15 @@ function drawBackground(ctx, w, h, time, settings, grain) {
 
 export function createPuppet(canvas) {
   const ctx = canvas.getContext('2d');
-  const eyeLBuf = document.createElement('canvas');
-  const eyeRBuf = document.createElement('canvas');
-  eyeLBuf.width = 900;
-  eyeLBuf.height = 900;
-  eyeRBuf.width = 900;
-  eyeRBuf.height = 900;
-  const eyeLCtx = eyeLBuf.getContext('2d');
-  const eyeRCtx = eyeRBuf.getContext('2d');
 
   const yawS = new Spring1D(180, 14);
   const pitchS = new Spring1D(180, 14);
   const rollS = new Spring1D(180, 14);
-  const earLS = new Spring1D(130, 12);
-  const earRS = new Spring1D(130, 12);
-  const hairLS = new Spring1D(110, 11);
-  const hairRS = new Spring1D(110, 11);
   const bounceS = new Spring1D(180, 14);
-  const heartLiftS = new Spring1D(170, 13);
-  const heartRotS = new Spring1D(160, 13);
   const heartScaleS = new Spring1D(200, 14);
   heartScaleS.reset(1);
+
+  const partSprings = {};
 
   const state = {
     loaded: false,
@@ -886,12 +912,12 @@ export function createPuppet(canvas) {
     paper: {},
     baked: null,
     bakedStyle: 'original',
-    rig: defaultRig(),
+    manifest: emptyManifest(),
     grain: null,
-    grainPatternKey: '',
     jumpT: null,
     prevJaw: 0,
     prevPitch: 0,
+    prevWrist: 0,
     mouthId: 'neutral',
     mouthPrev: 'neutral',
     mouthFade: 1,
@@ -900,6 +926,10 @@ export function createPuppet(canvas) {
     nextBlink: 1.7,
     blinkT: null,
     blinkIndex: 1,
+    eye: {
+      eye_l: { id: 'open', prev: 'open', fade: 1 },
+      eye_r: { id: 'open', prev: 'open', fade: 1 },
+    },
     view: {
       yaw: 0,
       pitch: 0,
@@ -911,20 +941,15 @@ export function createPuppet(canvas) {
       gazeY: 0,
       jaw: 0,
       smile: 0,
+      wristUp: 0,
+      bounce: 0,
       mouthId: 'neutral',
       mouthPrev: 'neutral',
       mouthFade: 1,
-      earL: 0,
-      earR: 0,
-      hairL: 0,
-      hairR: 0,
+      partRot: {},
       bodySx: 1,
       bodySy: 1,
       lean: 0,
-      followX: 0,
-      followY: 0,
-      heartLift: 0,
-      heartRot: 0,
       heartScale: 1,
       jumpY: 0,
       jumpSy: 1,
@@ -936,6 +961,12 @@ export function createPuppet(canvas) {
     return finite(targets?.[key], fallback);
   }
 
+  function sourceOf(file) {
+    if (!file) return null;
+    if (state.baked && state.baked[file]) return state.baked[file];
+    return state.images[file];
+  }
+
   function ensureBake(settings) {
     const style = styleById(settings?.style);
     if (!style.filter || style.filter === 'none') {
@@ -945,18 +976,32 @@ export function createPuppet(canvas) {
     }
     if (state.bakedStyle === style.id && state.baked) return;
     const baked = {};
-    for (const name of TINT_NAMES) {
-      const img = state.images[name];
+    for (const [file, img] of Object.entries(state.images)) {
       if (!drawable(img)) continue;
-      baked[name] = bakeFiltered(img, style.filter);
+      baked[file] = bakeFiltered(img, style.filter);
     }
     state.baked = baked;
     state.bakedStyle = style.id;
   }
 
-  function sourceOf(name) {
-    if (state.baked && state.baked[name]) return state.baked[name];
-    return state.images[name];
+  function initSprings() {
+    for (const key of Object.keys(partSprings)) delete partSprings[key];
+    for (const part of state.manifest.parts) {
+      if (part.role === 'ear') partSprings[part.id] = new Spring1D(130, 12);
+      else if (part.role === 'hair') partSprings[part.id] = new Spring1D(110, 11);
+    }
+  }
+
+  function bakeCaches() {
+    const ppu = state.manifest.pxPerUnit || 2;
+    state.soft = {};
+    state.paper = {};
+    for (const [file, img] of Object.entries(state.images)) {
+      if (!drawable(img)) continue;
+      const sil = bakeSilhouette(img);
+      state.soft[file] = bakeSoft(sil, ppu);
+      state.paper[file] = bakePaper(img);
+    }
   }
 
   function update(dtIn, targets, settings) {
@@ -965,19 +1010,21 @@ export function createPuppet(canvas) {
     if (dt > 0.05) dt = 0.05;
     state.time += dt;
     const tune = springTune(settings?.smoothing);
-    const springs = [yawS, pitchS, rollS, bounceS, heartLiftS, heartRotS, heartScaleS];
-    for (const spring of springs) {
+    for (const spring of [yawS, pitchS, rollS, bounceS, heartScaleS]) {
       spring.k = tune.k;
       spring.c = tune.c;
     }
-    earLS.k = tune.k * 0.72;
-    earRS.k = tune.k * 0.72;
-    earLS.c = tune.c * 0.95;
-    earRS.c = tune.c * 0.95;
-    hairLS.k = tune.k * 0.58;
-    hairRS.k = tune.k * 0.58;
-    hairLS.c = tune.c * 0.9;
-    hairRS.c = tune.c * 0.9;
+    for (const part of state.manifest.parts) {
+      const spr = partSprings[part.id];
+      if (!spr) continue;
+      if (part.role === 'ear') {
+        spr.k = tune.k * 0.72;
+        spr.c = tune.c * 0.95;
+      } else {
+        spr.k = tune.k * 0.52;
+        spr.c = tune.c * 0.88;
+      }
+    }
 
     const face = Boolean(targets?.face);
     const yawT = clamp(num(targets, 'yaw'), -1.5, 1.5);
@@ -995,26 +1042,31 @@ export function createPuppet(canvas) {
     const funnel = clamp(num(targets, 'funnel'), 0, 1.5);
     const pucker = clamp(num(targets, 'pucker'), 0, 1.5);
     const smile = clamp(num(targets, 'smile'), 0, 1.5);
+    const wristUp = clamp(num(targets, 'wristUp'), 0, 1);
     const bounceAmt = clamp(settings?.sensitivity?.bounce ?? 1, 0, 1.8);
     const bounceOn = settings?.bounce !== false;
     if (dt > 0 && bounceOn) {
       const dJaw = Math.max(0, jaw - state.prevJaw);
       const dPitch = Math.abs(pitch - state.prevPitch);
-      bounceS.v += clamp(dJaw * 0.85 + dPitch * 0.4, 0, 0.22) * bounceAmt;
+      const dWrist = Math.max(0, wristUp - state.prevWrist);
+      bounceS.v += clamp(dJaw * 0.85 + dPitch * 0.4 + dWrist * 0.55, 0, 0.25) * bounceAmt;
     }
     let sustain = 0;
     if (bounceOn) {
-      sustain = clamp(jaw, 0, 1) * 0.028 * bounceAmt;
-      if (!face) sustain += Math.max(0, Math.sin(state.time * 3.1)) * 0.016 * bounceAmt;
+      sustain = clamp(jaw, 0, 1) * 0.022 * bounceAmt;
+      sustain += wristUp * 0.018 * bounceAmt;
+      if (!face) sustain += Math.max(0, Math.sin(state.time * 3.1)) * 0.012 * bounceAmt;
     }
-    bounceS.update(clamp(sustain, 0, 0.05), dt);
-    const bounce = bounceOn ? clamp(bounceS.x, -0.035, 0.05) : 0;
-    let bodySy = (1 + 0.012 * Math.sin(state.time * 2.2)) * (1 + bounce);
-    bodySy = clamp(bodySy, 0.88, 1.12);
-    const bodySx = clamp(1 / Math.sqrt(bodySy), 0.9, 1.12);
+    bounceS.update(clamp(sustain, 0, 0.04), dt);
+    const bounce = bounceOn ? clamp(bounceS.x, -0.03, 0.04) : 0;
+    let bodySy = 1 + 0.012 * Math.sin(state.time * 2.2);
+    bodySy *= 1 + bounce;
+    bodySy = clamp(bodySy, 0.88, 1.04);
+    bodySy *= 1 + 0.05 * wristUp;
+    bodySy = clamp(bodySy, 0.88, 1.05);
+    const bodySx = clamp(1 / Math.sqrt(Math.max(0.6, bodySy)), 0.9, 1.12);
     const shoulder = clamp(num(targets, 'shoulderTilt'), -0.2, 0.2);
     const lean = clamp(0.35 * rollRad + shoulder, -MAX_LEAN, MAX_LEAN);
-    const follow = neckFollow(state.rig.neck, state.rig.feet, bodySx, bodySy, lean);
 
     let auto = 0;
     if (!face) {
@@ -1046,16 +1098,32 @@ export function createPuppet(canvas) {
         wiggle = Math.sin(k * Math.PI * 2.5) * (1 - k) * 0.1;
       }
     }
-    earLS.update(clamp(-yaw * 0.09 + wiggle, -MAX_EAR, MAX_EAR), dt);
-    earRS.update(clamp(yaw * 0.08 - wiggle * 0.85, -MAX_EAR, MAX_EAR), dt);
-    const sway = Math.sin(state.time * 1.65) * 0.018 + lean * 0.22;
-    hairLS.update(clamp(sway, -MAX_HAIR, MAX_HAIR), dt);
-    hairRS.update(clamp(-sway * 0.85, -MAX_HAIR, MAX_HAIR), dt);
 
-    const wristUp = clamp(num(targets, 'wristUp'), 0, 1);
-    heartLiftS.update(-14 * wristUp, dt);
-    heartRotS.update(clamp(num(targets, 'heartRot'), -0.45, 0.45), dt);
-    heartScaleS.update(smile > 0.55 ? 1.05 : 1, dt);
+    const partRot = {};
+    for (const part of state.manifest.parts) {
+      const spr = partSprings[part.id];
+      if (!spr) continue;
+      if (part.role === 'ear') {
+        const left = part.id.endsWith('_l');
+        const target = left
+          ? clamp(-yaw * 0.09 + rollRad * 0.25 + wiggle, -MAX_EAR, MAX_EAR)
+          : clamp(yaw * 0.08 - rollRad * 0.25 - wiggle * 0.85, -MAX_EAR, MAX_EAR);
+        spr.update(target, dt);
+        partRot[part.id] = clamp(spr.x, -MAX_EAR, MAX_EAR);
+      } else if (part.role === 'hair') {
+        const max = hairMax(part.id);
+        const sign = hairSign(part.id);
+        const phase = hash01(part.id.length + 7) * Math.PI * 2;
+        const breeze = Math.sin(state.time * 1.65 + phase) * 0.012;
+        const lag = -rollRad * 0.45 * sign - yaw * 0.07 * sign + lean * 0.18 * sign;
+        spr.update(clamp(lag + breeze, -max, max), dt);
+        partRot[part.id] = clamp(spr.x, -max, max);
+      }
+    }
+
+    const beat = bounceOn ? 0.5 * Math.max(0, bounce) : 0;
+    const heartTarget = clamp(1 + 0.06 * wristUp + 0.04 * smile + beat, 1, 1.1);
+    heartScaleS.update(heartTarget, dt);
 
     const choice = pickViseme(jaw, funnel, pucker, smile);
     if (choice.id !== state.mouthId) {
@@ -1078,7 +1146,19 @@ export function createPuppet(canvas) {
       state.pending = null;
       state.pendingN = 0;
     }
-    state.mouthFade = Math.min(1, state.mouthFade + dt / 0.06);
+    state.mouthFade = Math.min(1, state.mouthFade + dt / MOUTH_FADE);
+
+    for (const side of ['eye_l', 'eye_r']) {
+      const blink = side === 'eye_l' ? blinkL : blinkR;
+      const next = eyeFrameName(blink);
+      const slot = state.eye[side];
+      if (next !== slot.id) {
+        slot.prev = slot.id;
+        slot.id = next;
+        slot.fade = 0;
+      }
+      slot.fade = Math.min(1, slot.fade + dt / EYE_FADE);
+    }
 
     let jumpY = 0;
     let jumpSy = 1;
@@ -1103,153 +1183,167 @@ export function createPuppet(canvas) {
     view.gazeY = clamp(num(targets, 'gazeY'), -1.5, 1.5);
     view.jaw = jaw;
     view.smile = smile;
+    view.wristUp = wristUp;
+    view.bounce = bounce;
     view.mouthId = state.mouthId;
     view.mouthPrev = state.mouthPrev;
     view.mouthFade = state.mouthFade;
-    view.earL = clamp(earLS.x, -MAX_EAR, MAX_EAR);
-    view.earR = clamp(earRS.x, -MAX_EAR, MAX_EAR);
-    view.hairL = clamp(hairLS.x, -MAX_HAIR, MAX_HAIR);
-    view.hairR = clamp(hairRS.x, -MAX_HAIR, MAX_HAIR);
+    view.partRot = partRot;
     view.bodySx = bodySx;
     view.bodySy = bodySy;
     view.lean = lean;
-    view.followX = finite(follow.x, 0);
-    view.followY = finite(follow.y, 0);
-    view.heartLift = clamp(heartLiftS.x, -18, 4);
-    view.heartRot = clamp(heartRotS.x, -0.5, 0.5);
-    view.heartScale = clamp(heartScaleS.x, 0.9, 1.12);
+    view.heartScale = clamp(heartScaleS.x, 1, 1.1);
     view.jumpY = finite(jumpY, 0);
     view.jumpSy = clamp(finite(jumpSy, 1), 0.75, 1.25);
     view.face = face;
     state.prevJaw = jaw;
     state.prevPitch = pitch;
+    state.prevWrist = wristUp;
   }
 
-  function syncEyeBuffers() {
-    const w = Math.max(1, Math.round(state.rig.assetW || 900));
-    const h = Math.max(1, Math.round(state.rig.assetH || 900));
-    if (eyeLBuf.width !== w || eyeLBuf.height !== h) {
-      eyeLBuf.width = w;
-      eyeLBuf.height = h;
+  function blitEntry(img, entry, ox = 0, oy = 0) {
+    if (!drawable(img) || !entry) return;
+    const x = finite(entry.x, 0);
+    const y = finite(entry.y, 0);
+    const w = finite(entry.w, 0);
+    const h = finite(entry.h, 0);
+    if (!(w > 0 && h > 0)) return;
+    ctx.drawImage(img, x + ox, y + oy, w, h);
+  }
+
+  function applyBody() {
+    const { feet } = state.manifest.pivots;
+    const view = state.view;
+    ctx.translate(feet.x, feet.y);
+    ctx.rotate(view.lean);
+    ctx.scale(view.bodySx, view.bodySy);
+    ctx.translate(-feet.x, -feet.y);
+  }
+
+  function applyHead() {
+    const { neck } = state.manifest.pivots;
+    const view = state.view;
+    const sx = clamp(1 - 0.14 * Math.abs(view.yaw), 0.86, 1);
+    const sy = clamp(1 - 0.06 * Math.abs(view.pitch), 0.94, 1);
+    const skew = clamp(view.yaw * 0.06, -0.06, 0.06);
+    const offX = clamp(view.yaw * 9, -9, 9);
+    const offY = clamp(view.pitch * 9, -9, 9);
+    ctx.translate(neck.x + offX, neck.y + offY);
+    ctx.rotate(view.rollRad);
+    ctx.transform(sx, skew, 0, sy, 0, 0);
+    ctx.translate(-neck.x, -neck.y);
+  }
+
+  function applyLocal(part, extraX = 0, extraY = 0) {
+    const view = state.view;
+    const [px, py] = parallaxOf(part);
+    const tx = px * view.yaw + extraX;
+    const ty = py * view.pitch + extraY;
+    const rot = view.partRot[part?.id] || 0;
+    const pivot = pivotOf(part);
+    if (rot || tx || ty) {
+      ctx.translate(pivot.x + tx, pivot.y + ty);
+      if (rot) ctx.rotate(rot);
+      ctx.translate(-pivot.x, -pivot.y);
     }
-    if (eyeRBuf.width !== w || eyeRBuf.height !== h) {
-      eyeRBuf.width = w;
-      eyeRBuf.height = h;
-    }
   }
 
-  /** Dibuja una lámina (caché a assetSize) dentro del espacio de rig 600. */
-  function blit(img, x = 0, y = 0) {
-    ctx.drawImage(img, x, y, RIG_SIZE, RIG_SIZE);
-  }
-
-  function paintShadow(name) {
-    const img = state.soft[name];
+  function paintShadow(entry) {
+    const img = state.soft[entry?.file];
     if (!drawable(img)) return;
     ctx.save();
     ctx.globalAlpha = 0.22;
-    blit(img, 5, 7);
+    blitEntry(img, entry, 5, 7);
     ctx.restore();
   }
 
-  function paintEdge(name, ox, alpha) {
-    const img = state.paper[name];
+  function paintEdge(entry, ox, alpha) {
+    const img = state.paper[entry?.file];
     if (!drawable(img) || alpha < 0.02) return;
     ctx.save();
     ctx.globalAlpha = alpha;
-    blit(img, ox, 0);
+    blitEntry(img, entry, ox, 0);
     ctx.restore();
   }
 
-  function paintLayer(name) {
-    const img = sourceOf(name);
-    if (!drawable(img)) return;
-    blit(img, 0, 0);
+  function paintImage(entry) {
+    blitEntry(sourceOf(entry?.file), entry);
   }
 
-  function about(px, py, rot, extraX, extraY, draw) {
-    ctx.save();
-    ctx.translate(px + extraX, py + extraY);
-    if (rot) ctx.rotate(rot);
-    ctx.translate(-px, -py);
-    draw();
-    ctx.restore();
+  function eyeEntry(side, frame) {
+    const m = state.manifest;
+    if (frame === 'closed') return m.extras[`${side}_closed`] || null;
+    return m.byId[`${side}_${frame}`] || null;
   }
 
-  function withHeart(draw) {
-    const p = state.rig.heart;
-    ctx.save();
-    ctx.translate(p.x, p.y + state.view.heartLift);
-    ctx.rotate(state.view.heartRot);
-    const sc = state.view.heartScale;
-    ctx.scale(sc, sc);
-    ctx.translate(-p.x, -p.y);
-    draw();
-    ctx.restore();
-  }
-
-  function paintEye(side) {
-    const prefix = side === 'l' ? 'eye_l' : 'eye_r';
-    const white = sourceOf(`${prefix}_white`);
-    const iris = sourceOf(`${prefix}_iris`);
-    const mask = state.images[`${prefix}_mask`];
-    const closed = sourceOf(`${prefix}_closed`);
-    const buf = side === 'l' ? eyeLBuf : eyeRBuf;
-    const bctx = side === 'l' ? eyeLCtx : eyeRCtx;
-    const blink = side === 'l' ? state.view.blinkL : state.view.blinkR;
-    if (drawable(white)) blit(white, 0, 0);
-    syncEyeBuffers();
-    const ratio = (buf.width || RIG_SIZE) / RIG_SIZE;
-    const ox = clamp(state.view.gazeX, -1, 1) * 3 * ratio;
-    const oy = clamp(state.view.gazeY, -1, 1) * 2 * ratio;
-    if (bctx && drawable(iris) && drawable(mask)) {
-      bctx.setTransform(1, 0, 0, 1, 0, 0);
-      bctx.globalCompositeOperation = 'source-over';
-      bctx.globalAlpha = 1;
-      bctx.clearRect(0, 0, buf.width, buf.height);
-      bctx.imageSmoothingEnabled = true;
-      bctx.imageSmoothingQuality = 'high';
-      bctx.drawImage(iris, ox, oy);
-      bctx.globalCompositeOperation = 'destination-in';
-      bctx.drawImage(mask, 0, 0);
-      bctx.globalCompositeOperation = 'source-over';
-      blit(buf, 0, 0);
-    }
-    const lid = smoothstep(0.35, 0.7, clamp(blink, 0, 1));
-    if (lid > 0.015 && drawable(closed)) {
+  function paintEyeFrames(side) {
+    const view = state.view;
+    const slot = state.eye[side];
+    const blink = side === 'eye_l' ? view.blinkL : view.blinkR;
+    const fade = clamp(slot.fade, 0, 1);
+    const cur = eyeEntry(side, slot.id) || eyeEntry(side, eyeFrameName(blink));
+    const prev = slot.prev !== slot.id ? eyeEntry(side, slot.prev) : null;
+    if (fade < 0.999 && prev && prev !== cur) {
       ctx.save();
-      ctx.globalAlpha = lid;
-      blit(closed, 0, 0);
+      ctx.globalAlpha = 1 - fade;
+      paintImage(prev);
       ctx.restore();
     }
+    if (cur) {
+      ctx.save();
+      ctx.globalAlpha = fade < 0.999 && prev && prev !== cur ? fade : 1;
+      paintImage(cur);
+      ctx.restore();
+    }
+    return cur;
   }
 
   function paintMouth() {
     const view = state.view;
-    const cur = sourceOf(MOUTH_LAYER[view.mouthId] || 'mouth_neutral');
-    const prev = sourceOf(MOUTH_LAYER[view.mouthPrev] || 'mouth_neutral');
-    const m = state.rig.mouth;
-    const sy = clamp(0.85 + 0.35 * clamp(view.jaw, 0, 1.2), 0.7, 1.35);
-    const sx = clamp(1 + 0.1 * clamp(view.smile, 0, 1.5), 0.85, 1.3);
-    ctx.save();
-    ctx.translate(m.x, m.y);
-    ctx.scale(sx, sy);
-    ctx.translate(-m.x, -m.y);
+    const mouths = state.manifest.mouths;
+    const cur = mouths[view.mouthId] || mouths.neutral;
+    const prev = mouths[view.mouthPrev] || mouths.neutral;
     const fade = clamp(view.mouthFade, 0, 1);
-    if (fade < 0.999 && drawable(prev) && prev !== cur) {
+    if (fade < 0.999 && prev && prev !== cur) {
+      ctx.save();
       ctx.globalAlpha = 1 - fade;
-      blit(prev, 0, 0);
+      paintImage(prev);
+      ctx.restore();
     }
-    if (drawable(cur)) {
-      ctx.globalAlpha = fade < 0.999 && prev !== cur ? fade : 1;
-      blit(cur, 0, 0);
+    if (cur) {
+      ctx.save();
+      ctx.globalAlpha = fade < 0.999 && prev && prev !== cur ? fade : 1;
+      paintImage(cur);
+      ctx.restore();
     }
+  }
+
+  function paintHeart() {
+    const heart = state.manifest.extras.heart;
+    if (!heart) return;
+    const view = state.view;
+    const sc = clamp(view.heartScale, 1, 1.1);
+    const pivot = pivotOf(heart);
+    ctx.save();
+    applyBody();
+    ctx.translate(pivot.x, pivot.y);
+    ctx.scale(sc, sc);
+    ctx.translate(-pivot.x, -pivot.y);
+    paintImage(heart);
+    ctx.restore();
+  }
+
+  function wrapPart(part, draw) {
+    ctx.save();
+    applyBody();
+    if (part.parent === 'head' || part.role === 'eye' || part.role === 'mouth') applyHead();
+    draw();
     ctx.restore();
   }
 
   function drawCharacter(settings) {
     const view = state.view;
-    const rig = state.rig;
+    const m = state.manifest;
     const chroma = isChroma(settings?.background);
     const useShadow = settings?.paperShadow !== false && !chroma;
     const useEdge = settings?.paperThickness !== false;
@@ -1257,16 +1351,18 @@ export function createPuppet(canvas) {
     const edgeOx = -Math.sign(view.yaw || 0) * (2 + clamp(Math.abs(view.yaw), 0, 1));
     const edgeAlpha = 0.9 * edgeAmt;
     const acc = settings?.accessories || {};
+    const { feet, bounds } = { feet: m.pivots.feet, bounds: m.bounds };
 
     if (useShadow) {
       const lift = clamp(-view.jumpY / 50, 0, 1);
       const squash = view.jumpSy < 1 ? (1 - view.jumpSy) * 1.8 : 0;
-      const rx = 148 * (1 - 0.22 * lift) * (1 + squash);
+      const span = Math.max(80, bounds.x1 - bounds.x0);
+      const rx = span * 0.32 * (1 - 0.22 * lift) * (1 + squash);
       const ry = 16 * (1 - 0.4 * lift);
       ctx.save();
       ctx.fillStyle = `rgba(24, 16, 28, ${0.26 * (1 - 0.55 * lift)})`;
       ctx.beginPath();
-      ctx.ellipse(rig.feet.x + view.lean * 30, rig.feet.y + 8, rx, Math.max(6, ry), 0, 0, Math.PI * 2);
+      ctx.ellipse(feet.x + view.lean * 30, bounds.y1 + 8, rx, Math.max(6, ry), 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -1275,72 +1371,73 @@ export function createPuppet(canvas) {
     if (view.jumpY !== 0 || Math.abs(view.jumpSy - 1) > 0.001) {
       const sy = view.jumpSy;
       const sx = 1 / Math.sqrt(Math.max(0.6, sy));
-      ctx.translate(rig.feet.x, rig.feet.y + view.jumpY);
+      ctx.translate(feet.x, feet.y + view.jumpY);
       ctx.scale(sx, sy);
-      ctx.translate(-rig.feet.x, -rig.feet.y);
+      ctx.translate(-feet.x, -feet.y);
+    }
+
+    const drawnEyes = { eye_l: false, eye_r: false };
+    for (const part of m.parts) {
+      if (part.role === 'mouth') {
+        wrapPart(part, () => {
+          const center = m.mouthCenter;
+          applyLocal({ id: 'mouth', role: 'mouth', pivot: [center.x, center.y] });
+          const sy = clamp(0.85 + 0.35 * clamp(view.jaw, 0, 1.2), 0.7, 1.35);
+          const sx = clamp(1 + 0.1 * clamp(view.smile, 0, 1.5), 0.85, 1.3);
+          ctx.translate(center.x, center.y);
+          ctx.scale(sx, sy);
+          ctx.translate(-center.x, -center.y);
+          const cur = m.mouths[view.mouthId] || m.mouths.neutral;
+          if (useShadow && cur) paintShadow(cur);
+          if (useEdge && cur) paintEdge(cur, edgeOx, edgeAlpha);
+          paintMouth();
+        });
+        continue;
+      }
+      if (part.role === 'eye') {
+        const side = part.id?.startsWith('eye_r') ? 'eye_r' : 'eye_l';
+        if (drawnEyes[side]) continue;
+        drawnEyes[side] = true;
+        const gazeX = clamp(view.gazeX, -1.5, 1.5) * 3;
+        const gazeY = clamp(view.gazeY, -1.5, 1.5) * 2;
+        const dummy = {
+          id: side,
+          role: 'eye',
+          parent: 'head',
+          pivot: [m.pivots[side].x, m.pivots[side].y],
+        };
+        wrapPart(dummy, () => {
+          applyLocal(dummy, gazeX, gazeY);
+          const slot = state.eye[side];
+          const cur = eyeEntry(side, slot.id);
+          if (useShadow && cur) paintShadow(cur);
+          if (useEdge && cur) paintEdge(cur, edgeOx, edgeAlpha);
+          paintEyeFrames(side);
+        });
+        continue;
+      }
+      if (!part.file) continue;
+      wrapPart(part, () => {
+        applyLocal(part);
+        if (useShadow) paintShadow(part);
+        if (useEdge && part.parent === 'head') paintEdge(part, edgeOx, edgeAlpha);
+        paintImage(part);
+        if (part.id === 'ear_r' && acc.bow) drawBow(ctx, part);
+      });
+      if (part.id === 'body') paintHeart();
     }
 
     ctx.save();
-    ctx.translate(rig.feet.x, rig.feet.y);
-    ctx.rotate(view.lean);
-    ctx.scale(view.bodySx, view.bodySy);
-    ctx.translate(-rig.feet.x, -rig.feet.y);
-    if (useShadow) {
-      paintShadow('base');
-      about(rig.hairL.x, rig.hairL.y, view.hairL, 0, 0, () => paintShadow('hair_l'));
-      about(rig.hairR.x, rig.hairR.y, view.hairR, 0, 0, () => paintShadow('hair_r'));
-      withHeart(() => paintShadow('heart'));
-    }
-    paintLayer('base');
-    about(rig.hairL.x, rig.hairL.y, view.hairL, 0, 0, () => paintLayer('hair_l'));
-    about(rig.hairR.x, rig.hairR.y, view.hairR, 0, 0, () => paintLayer('hair_r'));
-    withHeart(() => paintLayer('heart'));
+    applyBody();
+    applyHead();
+    if (acc.glasses) drawGlasses(ctx, m.pivots, m.byId.eye_l_open || m.byId.eye_l_half, m.byId.eye_r_open || m.byId.eye_r_half);
+    if (acc.flowerCrown) drawFlowerCrown(ctx, m.byId.bangs, m.pivots.headTop);
+    if (acc.star) drawStarSticker(ctx, m.pivots.eye_r.x + 40, m.pivots.eye_r.y + 30, 14);
+    if (acc.headphones && m.byId.human_ears) drawHeadphones(ctx, m.pivots, m.byId.human_ears);
+    if (acc.blush) drawBlush(ctx, m.pivots);
+    if (acc.sparkles) drawSparkles(ctx, state.time, m.pivots);
     ctx.restore();
 
-    const sx = clamp(1 - 0.14 * Math.abs(view.yaw), 0.86, 1);
-    const sy = clamp(1 - 0.05 * Math.abs(view.pitch), 0.92, 1);
-    const skew = clamp(view.yaw * 0.06, -0.06, 0.06);
-    const offX = clamp(view.yaw * 9, -9, 9) + view.followX;
-    const offY = clamp(view.pitch * 7, -9, 9) + view.followY;
-    ctx.save();
-    ctx.translate(rig.neck.x + offX, rig.neck.y + offY);
-    ctx.rotate(view.rollRad);
-    ctx.transform(sx, skew, 0, sy, 0, 0);
-    ctx.translate(-rig.neck.x, -rig.neck.y);
-
-    const earShiftX = -view.yaw * 3;
-    const earShiftY = -view.pitch * 2;
-    if (useShadow) {
-      about(rig.earL.x, rig.earL.y, view.earL, earShiftX, earShiftY, () => paintShadow('ear_l'));
-      about(rig.earR.x, rig.earR.y, view.earR, earShiftX, earShiftY, () => paintShadow('ear_r'));
-      paintShadow('head');
-    }
-    about(rig.earL.x, rig.earL.y, view.earL, earShiftX, earShiftY, () => {
-      if (useEdge) paintEdge('ear_l', edgeOx, edgeAlpha);
-      paintLayer('ear_l');
-    });
-    about(rig.earR.x, rig.earR.y, view.earR, earShiftX, earShiftY, () => {
-      if (useEdge) paintEdge('ear_r', edgeOx, edgeAlpha);
-      paintLayer('ear_r');
-      if (acc.bow) drawBow(ctx, rig);
-    });
-    if (useEdge) paintEdge('head', edgeOx, edgeAlpha);
-    paintLayer('head');
-
-    ctx.save();
-    ctx.translate(view.yaw * 4, view.pitch * 3);
-    paintEye('l');
-    paintEye('r');
-    paintMouth();
-    if (acc.glasses) drawGlasses(ctx, rig);
-    ctx.restore();
-
-    if (acc.flowerCrown) drawFlowerCrown(ctx);
-    if (acc.star) drawStarSticker(ctx, rig.eyeR.x1 + 5, rig.eyeR.y1 + 30, 14);
-    if (acc.headphones) drawHeadphones(ctx, rig);
-    if (acc.blush) drawBlush(ctx, rig);
-    if (acc.sparkles) drawSparkles(ctx, state.time, rig);
-    ctx.restore();
     ctx.restore();
   }
 
@@ -1372,12 +1469,13 @@ export function createPuppet(canvas) {
     if (!state.loaded) return;
     ensureBake(settings);
 
-    const charW = FIT.x1 - FIT.x0;
-    const charH = FIT.y1 - FIT.y0;
-    const cx = (FIT.x0 + FIT.x1) / 2;
-    const cy = (FIT.y0 + FIT.y1) / 2;
-    let scale = (cssH * 0.85) / charH;
-    if (charW * scale > cssW * 0.94) scale = (cssW * 0.94) / charW;
+    const { bounds } = state.manifest;
+    const charW = bounds.x1 - bounds.x0;
+    const charH = bounds.y1 - bounds.y0;
+    const cx = (bounds.x0 + bounds.x1) / 2;
+    const cy = (bounds.y0 + bounds.y1) / 2;
+    let scale = (cssH * 0.88) / Math.max(1, charH);
+    if (charW * scale > cssW * 0.94) scale = (cssW * 0.94) / Math.max(1, charW);
     if (!Number.isFinite(scale) || scale <= 0) scale = 1;
     const ox = cssW / 2 - cx * scale;
     const oy = cssH / 2 - cy * scale;
@@ -1388,11 +1486,6 @@ export function createPuppet(canvas) {
   }
 
   const ready = (async () => {
-    const images = {};
-    await Promise.all(LAYER_NAMES.map(async (name) => {
-      images[name] = await loadImage(name);
-    }));
-    state.images = images;
     let json = null;
     try {
       const res = await fetch(assetUrl('rig.json'));
@@ -1400,15 +1493,15 @@ export function createPuppet(canvas) {
     } catch {
       json = null;
     }
-    state.rig = normalizeRig(json);
-    syncEyeBuffers();
-    for (const name of SHADOW_NAMES) {
-      const img = images[name];
-      if (!drawable(img)) continue;
-      const sil = bakeSilhouette(img);
-      state.soft[name] = bakeSoft(sil);
-      if (PAPER_NAMES.includes(name)) state.paper[name] = bakePaper(img);
-    }
+    state.manifest = normalizeManifest(json);
+    const files = collectFiles(state.manifest);
+    const images = {};
+    await Promise.all(files.map(async (file) => {
+      images[file] = await loadImage(file);
+    }));
+    state.images = images;
+    bakeCaches();
+    initSprings();
     state.grain = makeGrain();
     state.loaded = true;
   })().catch((err) => {
