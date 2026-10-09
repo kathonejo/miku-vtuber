@@ -1,6 +1,6 @@
 # Bunny VTuber
 
-Marioneta **VTuber** de papel en el navegador. El dibujo de una chica conejo, recortado en láminas, copia tu cabeza, tus ojos, tu boca y tus brazos. Todo se dibuja con Canvas 2D, al estilo de las hojas planas de PaRappa the Rapper: giro de cartulina, rebote, aleteo de boca y una sombra bajo cada recorte. La interfaz está en español.
+Marioneta **VTuber** de papel en el navegador. El dibujo de una chica conejo, recortado en láminas, copia tu cabeza, tus ojos, tu boca y tus brazos. Todo se dibuja con Canvas 2D, al estilo de las hojas planas de PaRappa the Rapper: giro de cartulina, rebote y aleteo de boca. La sombra es una sola, de toda la marioneta. La interfaz está en español.
 
 ## Qué puedes hacer
 
@@ -12,7 +12,7 @@ Marioneta **VTuber** de papel en el navegador. El dibujo de una chica conejo, re
 - Modo **espejo** (activo por defecto): el avatar se mueve como un espejo. La vista previa de la webcam también.
 - **Modo demo** sin cámara: la marioneta respira, se balancea y parpadea sola. El ratón mueve la cabeza y la mirada; mantener pulsado abre la boca.
 - Estilos de color (Original, Menta, Atardecer, Lavanda, Algodón, Papel, Neón), accesorios dibujados a rotulador y varios fondos, incluidos croma verde `#00ff00` y croma azul `#0000ff`.
-- Sombra de papel, grosor de cartulina y rebote, cada uno con su interruptor.
+- Sombra de papel, grosor de cartulina y rebote, cada uno con su interruptor. En **Escenario**: intensidad (0–1.5), color (por defecto azul `#2b4cc4`), fusión (multiplicar, superposición, luz suave, color subexpuesto) y **Color según el fondo**. El croma no lleva sombra. El grosor es solo el canto crema.
 - Guardado en `localStorage` (`bunny-vtuber-settings-v1`), botones **Guardar**, **Restablecer**, **Aleatorio** y **Captura** (PNG del lienzo).
 - **Modo stream**: oculta la interfaz para capturar el lienzo en OBS.
 

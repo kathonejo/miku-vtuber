@@ -1,6 +1,7 @@
 import { createSleeves } from './arms.js';
 import { createEyePainter, resolveStyle, stepEyeOpen, collectEyeFiles } from './eyes.js';
 import { clamp, finite, hash01, Spring1D } from './filters.js';
+import { paintCastShadow, paintGroundShadow, relativeLuminance, sampleAverage, shadowLook } from './castshadow.js';
 import { neckAnchorId, neckLiftAmount, paintNeck } from './neckdraw.js';
 import { resolveChain } from './rigchain.js';
 import {
@@ -248,7 +249,7 @@ function bakePaper(img) {
   const g = c.getContext('2d');
   g.drawImage(img, 0, 0);
   g.globalCompositeOperation = 'source-in';
-  g.fillStyle = 'rgb(250,240,220)';
+  g.fillStyle = '#fff5dc';
   g.fillRect(0, 0, w, h);
   return c;
 }
@@ -920,7 +921,9 @@ function drawBackground(ctx, w, h, time, settings, grain) {
 }
 
 export function createPuppet(canvas) {
-  const ctx = canvas.getContext('2d');
+  const mainCtx = canvas.getContext('2d');
+  let ctx = mainCtx;
+  const stage = document.createElement('canvas');
   const sleeves = createSleeves();
   const eyePainter = createEyePainter();
 
@@ -951,7 +954,10 @@ export function createPuppet(canvas) {
     delay: {},
     alpha: new Map(),
     place: { scale: 1, ox: 0, oy: 0 },
-    useShadow: true,
+    bgLum: 1,
+    bgKey: '',
+    bgRgb: null,
+    useShadow: false,
     useEdge: true,
     edgeOx: 0,
     edgeAlpha: 0,
@@ -1355,8 +1361,8 @@ export function createPuppet(canvas) {
     const img = state.paper[entry?.file];
     if (!drawable(img) || alpha < 0.02) return;
     ctx.save();
-    ctx.globalAlpha = alpha;
-    blitEntry(img, entry, ox, 0);
+    ctx.globalAlpha = Math.min(0.8, alpha);
+    blitEntry(img, entry, clamp(ox, -2, 2), 0);
     ctx.restore();
   }
 
@@ -1601,32 +1607,18 @@ export function createPuppet(canvas) {
   function drawCharacter(settings) {
     const view = state.view;
     const m = state.manifest;
-    const chroma = isChroma(settings?.background);
-    const useShadow = settings?.paperShadow !== false && !chroma;
+    const useShadow = false;
     const useEdge = settings?.paperThickness !== false;
     const edgeAmt = clamp((Math.abs(view.yaw) - 0.05) / 0.25, 0, 1);
-    const edgeOx = -Math.sign(view.yaw || 0) * (2 + clamp(Math.abs(view.yaw), 0, 1));
-    const edgeAlpha = 0.9 * edgeAmt;
+    const edgeOx = clamp(-Math.sign(view.yaw || 0) * Math.min(2, 1.2 + clamp(Math.abs(view.yaw), 0, 1)), -2, 2);
+    const edgeCap = (state.bgLum ?? 1) < 0.3 ? 0.55 : 0.8;
+    const edgeAlpha = edgeCap * edgeAmt;
     state.useShadow = useShadow;
     state.useEdge = useEdge;
     state.edgeOx = edgeOx;
     state.edgeAlpha = edgeAlpha;
     const acc = settings?.accessories || {};
-    const { feet, bounds } = { feet: m.pivots.feet, bounds: m.bounds };
-
-    if (useShadow) {
-      const lift = clamp(-view.jumpY / 50, 0, 1);
-      const squash = view.jumpSy < 1 ? (1 - view.jumpSy) * 1.8 : 0;
-      const span = Math.max(80, bounds.x1 - bounds.x0);
-      const rx = span * 0.32 * (1 - 0.22 * lift) * (1 + squash);
-      const ry = 16 * (1 - 0.4 * lift);
-      ctx.save();
-      ctx.fillStyle = `rgba(24, 16, 28, ${0.26 * (1 - 0.55 * lift)})`;
-      ctx.beginPath();
-      ctx.ellipse(feet.x + view.lean * 30, bounds.y1 + 8, rx, Math.max(6, ry), 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
+    const { feet } = m.pivots;
 
     ctx.save();
     if (view.jumpY !== 0 || Math.abs(view.jumpSy - 1) > 0.001) {
@@ -1731,8 +1723,9 @@ export function createPuppet(canvas) {
     ctx.save();
     applyBody();
     sleeves.draw(ctx, {
-      shadow: useShadow,
+      shadow: false,
       edge: useEdge,
+      edgeAlpha: edgeCap,
       filter: styleById(settings?.style).filter,
       time: state.time,
       getImage: (file) => sourceOf(file),
@@ -1755,20 +1748,74 @@ export function createPuppet(canvas) {
     }
   }
 
+  function castOn(settings) {
+    if (!settings || settings.paperShadow === false) return false;
+    if (isChroma(settings.background)) return false;
+    return finite(settings.shadowIntensity, 1) > 0.001;
+  }
+
+  function refreshBgSample(settings) {
+    const key = `${settings?.background}|${settings?.bgColor}|${canvas.width}`;
+    if (state.bgKey === key && state.bgRgb) return;
+    const { scale, ox, oy, dpr } = state.place;
+    const feet = state.manifest?.pivots?.feet;
+    if (!feet || !(scale > 0)) return;
+    const rgb = sampleAverage(
+      mainCtx,
+      (ox + feet.x * scale) * dpr,
+      (oy + feet.y * scale) * dpr,
+      28 * dpr,
+      16 * dpr,
+      canvas.width,
+      canvas.height,
+    );
+    if (!rgb) return;
+    state.bgKey = key;
+    state.bgRgb = rgb;
+    state.bgLum = relativeLuminance(rgb);
+  }
+
+  function paintFloorShadow(look) {
+    const view = state.view;
+    const feet = state.manifest.pivots.feet;
+    const bounds = state.manifest.bounds;
+    const { scale, ox, oy, dpr } = state.place;
+    const lift = clamp(-view.jumpY / 50, 0, 1);
+    const squash = view.jumpSy < 1 ? (1 - view.jumpSy) * 1.8 : 0;
+    const span = Math.max(80, bounds.x1 - bounds.x0);
+    const rx = span * 0.32 * (1 - 0.22 * lift) * (1 + squash) * scale;
+    const ry = Math.max(6, 16 * (1 - 0.4 * lift)) * scale;
+    mainCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    paintGroundShadow(mainCtx, {
+      x: ox + (feet.x + view.lean * 30) * scale,
+      y: oy + (bounds.y1 + 8) * scale,
+      rx,
+      ry,
+      color: look.color,
+      alpha: look.ground,
+      blur: 14 * scale,
+    });
+  }
+
   function draw(settings) {
-    if (!ctx) return;
+    if (!mainCtx) return;
+    ctx = mainCtx;
+    const opts = settings || {};
     resize();
     const cssW = Math.max(1, canvas.clientWidth || 1);
     const cssH = Math.max(1, canvas.clientHeight || 1);
     const dpr = Math.min((typeof window !== 'undefined' && window.devicePixelRatio) || 1, 2);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.clearRect(0, 0, cssW + 2, cssH + 2);
+    mainCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    mainCtx.globalAlpha = 1;
+    mainCtx.globalCompositeOperation = 'source-over';
+    mainCtx.filter = 'none';
+    mainCtx.imageSmoothingEnabled = true;
+    mainCtx.imageSmoothingQuality = 'high';
+    mainCtx.clearRect(0, 0, cssW + 2, cssH + 2);
     if (!state.grain) state.grain = makeGrain();
-    drawBackground(ctx, cssW, cssH, state.time, settings, state.grain);
+    drawBackground(mainCtx, cssW, cssH, state.time, opts, state.grain);
     if (!state.loaded) return;
-    ensureBake(settings);
+    ensureBake(opts);
 
     const { bounds } = state.manifest;
     const charW = bounds.x1 - bounds.x0;
@@ -1781,10 +1828,45 @@ export function createPuppet(canvas) {
     const ox = cssW / 2 - cx * scale;
     const oy = cssH / 2 - cy * scale;
     state.place = { scale, ox, oy, dpr };
+    refreshBgSample(opts);
+
+    const bw = canvas.width;
+    const bh = canvas.height;
+    if (stage.width !== bw || stage.height !== bh) {
+      stage.width = bw;
+      stage.height = bh;
+    }
+    ctx = stage.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.filter = 'none';
+    ctx.clearRect(0, 0, bw, bh);
     ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    drawCharacter(settings || {});
+    try {
+      drawCharacter(opts);
+    } finally {
+      ctx = mainCtx;
+    }
+
+    if (castOn(opts)) {
+      const look = shadowLook(opts, state.bgRgb);
+      paintFloorShadow(look);
+      paintCastShadow(mainCtx, stage, {
+        color: look.color,
+        blend: look.blend,
+        alpha: look.alpha,
+        blurPx: 7 * scale * dpr,
+        ox: 5 * scale * dpr,
+        oy: 8 * scale * dpr,
+      });
+    }
+    mainCtx.setTransform(1, 0, 0, 1, 0, 0);
+    mainCtx.globalAlpha = 1;
+    mainCtx.globalCompositeOperation = 'source-over';
+    mainCtx.drawImage(stage, 0, 0);
   }
 
   const ready = (async () => {

@@ -109,11 +109,32 @@
               <button id="btn-wink" type="button" aria-pressed="false">Guiño independiente</button>
             </section>
             <section>
-              <h3>Fondo</h3>
+              <h3>Escenario</h3>
               <div id="bg-list" class="choice-grid"></div>
               <label id="bg-color-wrap" class="color-row">
                 Color personalizado
                 <input id="color-bg" type="color" value="#243a5c" />
+              </label>
+              <label class="slider-row">
+                <span>Intensidad de sombra <b id="shadow-intensity-val"></b></span>
+                <input id="shadow-intensity" type="range" min="0" max="1.5" step="0.05" />
+              </label>
+              <label class="color-row" id="shadow-color-wrap">
+                Color de sombra
+                <input id="shadow-color" type="color" value="#2b4cc4" />
+              </label>
+              <label class="slider-row">
+                Fusión de sombra
+                <select id="shadow-blend">
+                  <option value="multiply">Multiplicar</option>
+                  <option value="overlay">Superposición</option>
+                  <option value="soft-light">Luz suave</option>
+                  <option value="color-burn">Color subexpuesto</option>
+                </select>
+              </label>
+              <label class="check-row">
+                <input id="shadow-auto" type="checkbox" />
+                Color según el fondo
               </label>
             </section>
             <section>

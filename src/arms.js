@@ -303,7 +303,7 @@ function bakeOne(name, def, boil, pattern) {
   for (let i = 0; i < 12; i += 1) {
     const a = (i / 12) * Math.PI * 2;
     boards.paper.g.save();
-    boards.paper.g.translate(Math.cos(a) * 3, Math.sin(a) * 3);
+    boards.paper.g.translate(Math.cos(a) * 2, Math.sin(a) * 2);
     path(boards.paper.g);
     boards.paper.g.fillStyle = CREAM;
     boards.paper.g.fill();
@@ -595,7 +595,7 @@ export function createSleeves() {
     const pw = Math.max(1, img.naturalWidth || img.width);
     const ph = Math.max(1, img.naturalHeight || img.height);
     const ppu = pw / Math.max(0.001, part.w || 1);
-    const padU = 3;
+    const padU = 2;
     const pad = Math.max(1, Math.ceil(padU * ppu));
     const paper = document.createElement('canvas');
     paper.width = pw + pad * 2;
@@ -617,7 +617,7 @@ export function createSleeves() {
     sg.globalCompositeOperation = 'source-in';
     sg.fillStyle = '#000';
     sg.fillRect(0, 0, pw, ph);
-    rec = { img, paper, sil };
+    rec = { img, paper, sil, padU };
     imgBakes.set(file, rec);
     return rec;
   }
@@ -638,7 +638,11 @@ export function createSleeves() {
       ctx.restore();
     }
     if (env.edge && baked.paper) {
-      ctx.drawImage(baked.paper, part.x - 3, part.y - 3, part.w + 6, part.h + 6);
+      const padU = baked.padU || 2;
+      ctx.save();
+      ctx.globalAlpha *= Math.min(0.8, env.edgeAlpha ?? 0.8);
+      ctx.drawImage(baked.paper, part.x - padU, part.y - padU, part.w + padU * 2, part.h + padU * 2);
+      ctx.restore();
     }
     ctx.drawImage(img, part.x, part.y, part.w, part.h);
     ctx.restore();
@@ -657,7 +661,12 @@ export function createSleeves() {
       ctx.drawImage(piece.sil, piece.bounds.x0 + 5, piece.bounds.y0 + 7, piece.w, piece.h);
       ctx.restore();
     }
-    if (env.edge) ctx.drawImage(piece.paper, piece.bounds.x0, piece.bounds.y0, piece.w, piece.h);
+    if (env.edge) {
+      ctx.save();
+      ctx.globalAlpha *= Math.min(0.8, env.edgeAlpha ?? 0.8);
+      ctx.drawImage(piece.paper, piece.bounds.x0, piece.bounds.y0, piece.w, piece.h);
+      ctx.restore();
+    }
     if (art) ctx.drawImage(art, piece.bounds.x0, piece.bounds.y0, piece.w, piece.h);
     ctx.restore();
   }

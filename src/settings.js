@@ -1,6 +1,6 @@
 /** Ajustes de Bunny VTuber. Se guardan en localStorage. */
 
-import { clamp } from './filters.js';
+import { clamp, finite } from './filters.js';
 
 export const STORAGE_KEY = 'bunny-vtuber-settings-v1';
 
@@ -25,14 +25,21 @@ export const ACCESSORY_DEFS = [
 ];
 
 export const BACKGROUNDS = [
-  { id: 'parappa', name: 'Escenario PaRappa' },
+  { id: 'parappa', name: 'Escenario PaRappa', shadow: 'rgb(150,50,20)' },
   { id: 'azul', name: 'Azul original' },
   { id: 'crema', name: 'Papel crema' },
-  { id: 'cuarto', name: 'Cuarto' },
-  { id: 'estrellas', name: 'Noche estrellada' },
+  { id: 'cuarto', name: 'Cuarto', shadow: 'rgb(150,90,70)' },
+  { id: 'estrellas', name: 'Noche estrellada', shadow: 'rgb(10,15,45)', shadowAlpha: 0.6 },
   { id: 'green', name: 'Pantalla verde' },
   { id: 'blue', name: 'Pantalla azul' },
   { id: 'custom', name: 'Color personalizado' },
+];
+
+export const SHADOW_BLENDS = [
+  { id: 'multiply', name: 'Multiplicar' },
+  { id: 'overlay', name: 'Superposición' },
+  { id: 'soft-light', name: 'Luz suave' },
+  { id: 'color-burn', name: 'Color subexpuesto' },
 ];
 
 export const TOGGLE_DEFS = [
@@ -69,6 +76,10 @@ export const DEFAULT_SETTINGS = {
   mirror: true,
   paperShadow: true,
   paperThickness: true,
+  shadowIntensity: 1,
+  shadowColor: '#2b4cc4',
+  shadowBlend: 'multiply',
+  shadowAuto: false,
   bounce: true,
   independentWink: false,
   eyeStyle: 'A',
@@ -116,6 +127,10 @@ function mergeSettings(base, saved) {
   out.mirror = out.mirror !== false;
   out.paperShadow = out.paperShadow !== false;
   out.paperThickness = out.paperThickness !== false;
+  out.shadowIntensity = clamp(finite(Number(out.shadowIntensity), 1), 0, 1.5);
+  if (!isHex(out.shadowColor)) out.shadowColor = base.shadowColor;
+  if (!SHADOW_BLENDS.some((item) => item.id === out.shadowBlend)) out.shadowBlend = base.shadowBlend;
+  out.shadowAuto = out.shadowAuto === true;
   out.bounce = out.bounce !== false;
   out.independentWink = out.independentWink === true;
   out.eyeStyle = out.eyeStyle === 'B' ? 'B' : 'A';

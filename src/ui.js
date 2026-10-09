@@ -23,6 +23,7 @@ const SLIDERS = [
   ['sens-head', (s) => s.sensitivity.head, (s, v) => { s.sensitivity.head = v; }],
   ['sens-bounce', (s) => s.sensitivity.bounce, (s, v) => { s.sensitivity.bounce = v; }],
   ['sens-smooth', (s) => s.smoothing, (s, v) => { s.smoothing = v; }],
+  ['shadow-intensity', (s) => s.shadowIntensity, (s, v) => { s.shadowIntensity = v; }],
 ];
 
 function coerceDebug(obj) {
@@ -205,6 +206,12 @@ export function mount(doc) {
     const bgInput = doc.getElementById('color-bg');
     doc.getElementById('bg-color-wrap').hidden = settings.background !== 'custom';
     if (bgInput && doc.activeElement !== bgInput) bgInput.value = settings.bgColor;
+    const shadowColor = doc.getElementById('shadow-color');
+    if (shadowColor && doc.activeElement !== shadowColor) shadowColor.value = settings.shadowColor;
+    const shadowBlend = doc.getElementById('shadow-blend');
+    if (shadowBlend && doc.activeElement !== shadowBlend) shadowBlend.value = settings.shadowBlend;
+    const shadowAuto = doc.getElementById('shadow-auto');
+    if (shadowAuto) shadowAuto.checked = settings.shadowAuto === true;
     doc.getElementById('btn-preview').setAttribute('aria-pressed', String(settings.showPreview));
     doc.getElementById('btn-landmarks').setAttribute('aria-pressed', String(settings.showLandmarks));
     const winkBtn = doc.getElementById('btn-wink');
@@ -248,6 +255,25 @@ export function mount(doc) {
       persist();
       renderChoices();
       syncChrome();
+    });
+    const shadowColor = doc.getElementById('shadow-color');
+    shadowColor.addEventListener('input', () => {
+      settings.shadowColor = shadowColor.value;
+      settings.shadowAuto = false;
+      persist();
+      syncChrome();
+    });
+    const shadowBlend = doc.getElementById('shadow-blend');
+    shadowBlend.addEventListener('change', () => {
+      settings.shadowBlend = shadowBlend.value;
+      settings.shadowAuto = false;
+      persist();
+      syncChrome();
+    });
+    const shadowAuto = doc.getElementById('shadow-auto');
+    shadowAuto.addEventListener('change', () => {
+      settings.shadowAuto = shadowAuto.checked;
+      persist();
     });
   }
 
