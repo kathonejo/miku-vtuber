@@ -1,18 +1,47 @@
-import { createAvatar } from './avatar.js';
+import { finite } from './filters.js';
+import { createPuppet } from './puppet.js';
 import {
   ACCESSORY_DEFS,
   BACKGROUNDS,
-  HAIRSTYLES,
-  OUTFITS,
-  PALETTES,
-  SKIN_PRESETS,
-  applyPalette,
+  STYLES,
+  TOGGLE_DEFS,
   loadSettings,
   randomizeSettings,
   resetSettings,
   saveSettings,
 } from './settings.js';
 import { MSG, createTracker, decorativeTargets } from './tracking.js';
+
+const SLIDERS = [
+  ['sens-mouth', (s) => s.sensitivity.mouth, (s, v) => { s.sensitivity.mouth = v; }],
+  ['sens-blink', (s) => s.sensitivity.blink, (s, v) => { s.sensitivity.blink = v; }],
+  ['sens-head', (s) => s.sensitivity.head, (s, v) => { s.sensitivity.head = v; }],
+  ['sens-bounce', (s) => s.sensitivity.bounce, (s, v) => { s.sensitivity.bounce = v; }],
+  ['sens-smooth', (s) => s.smoothing, (s, v) => { s.smoothing = v; }],
+];
+
+function coerceDebug(obj) {
+  const n = (key) => finite(obj?.[key], 0);
+  return {
+    mode: 'debug',
+    face: true,
+    pose: false,
+    yaw: n('yaw'),
+    pitch: n('pitch'),
+    roll: n('roll'),
+    blinkL: n('blinkL'),
+    blinkR: n('blinkR'),
+    gazeX: n('gazeX'),
+    gazeY: n('gazeY'),
+    jaw: n('jaw'),
+    funnel: n('funnel'),
+    pucker: n('pucker'),
+    smile: n('smile'),
+    wristUp: n('wristUp'),
+    heartRot: 0,
+    shoulderTilt: 0,
+  };
+}
 
 export function mount(doc) {
   const settings = loadSettings();
@@ -24,14 +53,28 @@ export function mount(doc) {
   const startScreen = doc.getElementById('start-screen');
   const preview = doc.getElementById('preview');
   const layout = doc.getElementById('layout');
-  const panel = doc.getElementById('panel');
   const backdrop = doc.getElementById('backdrop');
   const toastEl = doc.getElementById('toast');
+  const stage = doc.getElementById('stage');
 
-  const avatar = createAvatar(canvas);
+  const puppet = createPuppet(canvas);
+  let debugTargets = null;
   let toastTimer = 0;
-  const demo = { active: false, x: 0.5, y: 0.42 };
+  let wasCalibrating = false;
+  const demo = { active: false, x: 0.5, y: 0.42, down: false };
+  let dragging = false;
   let last = performance.now();
+
+  function setDebugTargets(obj) {
+    debugTargets = obj && typeof obj === 'object' ? obj : null;
+  }
+
+  const api = {
+    setDebugTargets,
+    ready: puppet.ready,
+  };
+  const root = doc.defaultView || (typeof window !== 'undefined' ? window : null);
+  if (root) root.__bunny = api;
 
   function toast(message) {
     toastEl.textContent = message;
@@ -48,12 +91,13 @@ export function mount(doc) {
   const tracker = createTracker(video, setStatus);
 
   function persist() {
-    saveSettings(settings);
+    return saveSettings(settings);
   }
 
   function syncPreview() {
     const show = settings.showPreview && tracker.isRunning();
     preview.hidden = !show;
+    preview.classList.toggle('unmirrored', !settings.mirror);
     if (video.videoWidth) preview.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
   }
 
@@ -76,127 +120,99 @@ export function mount(doc) {
     }
   }
 
-  function refreshPressed() {
-    const mark = (container, current) => {
-      for (const btn of doc.querySelectorAll(`#${container} button`)) {
-        const label = btn.textContent;
-        const list = {
-          'outfit-list': OUTFITS,
-          'palette-list': PALETTES,
-          'hair-list': HAIRSTYLES,
-          'bg-list': BACKGROUNDS,
-        }[container];
-        const item = list?.find((entry) => entry.name === label);
-        if (item) btn.setAttribute('aria-pressed', String(item.id === current));
-      }
-    };
-    mark('outfit-list', settings.outfit);
-    mark('palette-list', settings.palette);
-    mark('hair-list', settings.hairstyle);
-    mark('bg-list', settings.background);
-    for (const btn of doc.querySelectorAll('#skin-list button')) {
-      const preset = SKIN_PRESETS.find((s) => s.name === btn.textContent);
-      const on = Boolean(preset && preset.color.toLowerCase() === settings.skinColor.toLowerCase());
-      btn.setAttribute('aria-pressed', String(on));
-    }
-  }
-
-  function syncControls() {
-    fillChoices(doc.getElementById('outfit-list'), OUTFITS, settings.outfit, (id) => {
-      settings.outfit = id;
+  function renderChoices() {
+    fillChoices(doc.getElementById('style-list'), STYLES, settings.style, (id) => {
+      settings.style = id;
       persist();
-      syncControls();
-    });
-    fillChoices(doc.getElementById('palette-list'), PALETTES, settings.palette, (id) => {
-      applyPalette(settings, id);
-      persist();
-      syncControls();
-    });
-    fillChoices(doc.getElementById('hair-list'), HAIRSTYLES, settings.hairstyle, (id) => {
-      settings.hairstyle = id;
-      persist();
-      syncControls();
+      renderChoices();
     });
     fillChoices(doc.getElementById('bg-list'), BACKGROUNDS, settings.background, (id) => {
       settings.background = id;
       persist();
-      syncControls();
+      renderChoices();
+      syncChrome();
     });
-    fillChoices(doc.getElementById('skin-list'), SKIN_PRESETS, null, (id) => {
-      const found = SKIN_PRESETS.find((s) => s.id === id);
-      if (!found) return;
-      settings.skinColor = found.color;
+    fillChoices(doc.getElementById('accessory-list'), ACCESSORY_DEFS, null, (id) => {
+      settings.accessories[id] = !settings.accessories[id];
       persist();
-      syncControls();
+      renderChoices();
     });
-    for (const btn of doc.querySelectorAll('#skin-list button')) {
-      const preset = SKIN_PRESETS.find((s) => s.name === btn.textContent);
-      if (preset && preset.color.toLowerCase() === settings.skinColor.toLowerCase()) {
-        btn.setAttribute('aria-pressed', 'true');
-      }
+    for (const btn of doc.querySelectorAll('#accessory-list button')) {
+      const item = ACCESSORY_DEFS.find((entry) => entry.name === btn.textContent);
+      if (item) btn.setAttribute('aria-pressed', String(Boolean(settings.accessories[item.id])));
     }
-
-    const acc = doc.getElementById('accessory-list');
-    acc.replaceChildren();
-    for (const item of ACCESSORY_DEFS) {
-      const btn = doc.createElement('button');
-      btn.type = 'button';
-      btn.textContent = item.name;
-      btn.setAttribute('aria-pressed', String(Boolean(settings.accessories[item.id])));
-      btn.addEventListener('click', () => {
-        settings.accessories[item.id] = !settings.accessories[item.id];
-        persist();
-        syncControls();
-      });
-      acc.appendChild(btn);
+    fillChoices(doc.getElementById('toggle-list'), TOGGLE_DEFS, null, (id) => {
+      settings[id] = !settings[id];
+      persist();
+      renderChoices();
+      syncChrome();
+    });
+    for (const btn of doc.querySelectorAll('#toggle-list button')) {
+      const item = TOGGLE_DEFS.find((entry) => entry.name === btn.textContent);
+      if (item) btn.setAttribute('aria-pressed', String(Boolean(settings[item.id])));
     }
+  }
 
-    const bindColor = (id, key) => {
-      const input = doc.getElementById(id);
-      input.value = settings[key];
-      input.oninput = () => {
-        settings[key] = input.value;
-        if (key !== 'bgColor') settings.palette = 'custom';
-        if (key === 'bgColor') settings.background = 'custom';
-        doc.getElementById('bg-color-wrap').hidden = settings.background !== 'custom';
-        persist();
-        refreshPressed();
-      };
-    };
-    bindColor('color-hair', 'hairColor');
-    bindColor('color-eye', 'eyeColor');
-    bindColor('color-skin', 'skinColor');
-    bindColor('color-accent', 'accentColor');
-    bindColor('color-bg', 'bgColor');
-    doc.getElementById('bg-color-wrap').hidden = settings.background !== 'custom';
-
-    const bindRange = (id, read, write) => {
+  function syncSliderValues() {
+    for (const [id, read] of SLIDERS) {
       const input = doc.getElementById(id);
       const label = doc.getElementById(`${id}-val`);
-      input.value = String(read());
-      label.textContent = Number(read()).toFixed(2);
-      input.oninput = () => {
-        write(Number(input.value));
-        label.textContent = Number(input.value).toFixed(2);
-        persist();
-      };
-    };
-    bindRange('sens-mouth', () => settings.sensitivity.mouth, (v) => { settings.sensitivity.mouth = v; });
-    bindRange('sens-blink', () => settings.sensitivity.blink, (v) => { settings.sensitivity.blink = v; });
-    bindRange('sens-arms', () => settings.sensitivity.arms, (v) => { settings.sensitivity.arms = v; });
-    bindRange('sens-smooth', () => settings.smoothing, (v) => { settings.smoothing = v; });
+      if (!input || !label) continue;
+      const value = read(settings);
+      if (doc.activeElement !== input) input.value = String(value);
+      label.textContent = Number(value).toFixed(2);
+    }
+  }
 
+  function syncChrome() {
+    const bgInput = doc.getElementById('color-bg');
+    doc.getElementById('bg-color-wrap').hidden = settings.background !== 'custom';
+    if (bgInput && doc.activeElement !== bgInput) bgInput.value = settings.bgColor;
     doc.getElementById('btn-preview').setAttribute('aria-pressed', String(settings.showPreview));
     doc.getElementById('btn-landmarks').setAttribute('aria-pressed', String(settings.showLandmarks));
     const open = layout.classList.contains('panel-open');
     doc.getElementById('btn-panel').setAttribute('aria-expanded', String(open));
+    syncPreview();
+    syncSliderValues();
+  }
+
+  function syncControls() {
+    renderChoices();
+    syncChrome();
+  }
+
+  function bindSliders() {
+    for (const [id, read, write] of SLIDERS) {
+      const input = doc.getElementById(id);
+      const label = doc.getElementById(`${id}-val`);
+      input.value = String(read(settings));
+      label.textContent = Number(read(settings)).toFixed(2);
+      input.addEventListener('input', () => {
+        write(settings, Number(input.value));
+        label.textContent = Number(input.value).toFixed(2);
+        persist();
+      });
+    }
+    const bgInput = doc.getElementById('color-bg');
+    bgInput.value = settings.bgColor;
+    bgInput.addEventListener('input', () => {
+      settings.bgColor = bgInput.value;
+      settings.background = 'custom';
+      persist();
+      renderChoices();
+      syncChrome();
+    });
   }
 
   function setPanel(open) {
     layout.classList.toggle('panel-open', open);
-    const mobile = window.matchMedia('(max-width: 900px)').matches;
+    const mobile = root?.matchMedia?.('(max-width: 900px)')?.matches ?? false;
     backdrop.hidden = !(open && mobile);
     doc.getElementById('btn-panel').setAttribute('aria-expanded', String(open));
+  }
+
+  function hideUi(hidden) {
+    doc.body.classList.toggle('ui-hidden', hidden);
   }
 
   async function activateCamera() {
@@ -210,14 +226,93 @@ export function mount(doc) {
     if (result.ok) {
       startScreen.hidden = true;
       demo.active = false;
+      demo.down = false;
     }
     syncCameraButtons();
   }
 
   function enterDemo() {
     startScreen.hidden = true;
-    setStatus(tracker.isRunning() ? statusEl.textContent : MSG.demo);
     if (!tracker.isRunning()) setStatus(MSG.demo);
+  }
+
+  async function enterStream() {
+    doc.body.classList.add('stream');
+    hideUi(true);
+    doc.getElementById('btn-exit-stream').hidden = false;
+    const target = doc.getElementById('app');
+    try {
+      if (!doc.fullscreenElement && target.requestFullscreen) await target.requestFullscreen();
+    } catch {
+      /* el modo stream sigue activo aunque el navegador bloquee la pantalla completa */
+    }
+    puppet.resize();
+  }
+
+  async function exitStream() {
+    doc.body.classList.remove('stream');
+    hideUi(false);
+    doc.getElementById('btn-exit-stream').hidden = true;
+    try {
+      if (doc.fullscreenElement) await doc.exitFullscreen();
+    } catch {
+      /* ignorar */
+    }
+    puppet.resize();
+  }
+
+  function placeDemo(event) {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    demo.x = (event.clientX - rect.left) / rect.width;
+    demo.y = (event.clientY - rect.top) / rect.height;
+    demo.active = true;
+  }
+
+  function isControl(event) {
+    const el = event.target;
+    return Boolean(el?.closest?.('button, a, input, textarea, select, label'));
+  }
+
+  function currentTargets(now) {
+    const sample = tracker.isRunning() ? tracker.consumeFrame(settings) : null;
+    if (debugTargets) return coerceDebug(debugTargets);
+    if (tracker.isRunning() && sample?.face) return sample;
+    if (tracker.isRunning()) {
+      const idle = decorativeTargets(now / 1000, null, settings);
+      return {
+        ...idle,
+        wristUp: sample?.wristUp ?? idle.wristUp,
+        heartRot: sample?.heartRot ?? idle.heartRot,
+        shoulderTilt: sample?.shoulderTilt ?? idle.shoulderTilt,
+      };
+    }
+    return decorativeTargets(now / 1000, demo.active ? demo : null, settings);
+  }
+
+  function watchCalibration() {
+    const calibrating = tracker.isCalibrating();
+    if (calibrating && !wasCalibrating) setStatus(MSG.calibrating);
+    if (!calibrating && wasCalibrating && tracker.isRunning()) {
+      setStatus(tracker.getDelegate() === 'CPU' ? MSG.cpu : MSG.camera);
+      toast('Calibración lista');
+    }
+    wasCalibrating = calibrating;
+  }
+
+  function frame(now) {
+    try {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      watchCalibration();
+      const targets = currentTargets(now);
+      puppet.update(dt, targets, settings);
+      puppet.draw(settings);
+      tracker.drawDebug(overlay, settings.showLandmarks);
+    } catch (err) {
+      console.error(err);
+    }
+    requestAnimationFrame(frame);
   }
 
   doc.getElementById('btn-start').addEventListener('click', () => { void activateCamera(); });
@@ -232,7 +327,6 @@ export function mount(doc) {
     settings.showPreview = !settings.showPreview;
     persist();
     syncControls();
-    syncPreview();
   });
   doc.getElementById('btn-landmarks').addEventListener('click', () => {
     settings.showLandmarks = !settings.showLandmarks;
@@ -246,8 +340,7 @@ export function mount(doc) {
   backdrop.addEventListener('click', () => setPanel(false));
 
   doc.getElementById('btn-save').addEventListener('click', () => {
-    persist();
-    toast('Guardado');
+    toast(persist() ? 'Guardado' : 'No se pudo guardar');
   });
   doc.getElementById('btn-reset').addEventListener('click', () => {
     resetSettings(settings);
@@ -262,95 +355,83 @@ export function mount(doc) {
     toast('¡Look aleatorio!');
   });
   doc.getElementById('btn-capture').addEventListener('click', () => {
-    const alpha = settings.background === 'transparent';
-    avatar.draw({ settings, exportAlpha: alpha });
+    puppet.draw(settings);
     const url = canvas.toDataURL('image/png');
     const a = doc.createElement('a');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     a.href = url;
-    a.download = `miku-vtuber-${stamp}.png`;
+    a.download = `bunny-vtuber-${stamp}.png`;
     a.click();
-    if (alpha) avatar.draw({ settings });
     toast('Captura descargada');
   });
-
-  async function enterStream() {
-    doc.body.classList.add('stream');
-    doc.getElementById('btn-exit-stream').hidden = false;
-    const target = doc.getElementById('app');
-    try {
-      if (!doc.fullscreenElement && target.requestFullscreen) await target.requestFullscreen();
-    } catch {
-      /* el modo stream sigue activo aunque el navegador bloquee la pantalla completa */
-    }
-    avatar.resize();
-  }
-
-  async function exitStream() {
-    doc.body.classList.remove('stream');
-    doc.getElementById('btn-exit-stream').hidden = true;
-    try {
-      if (doc.fullscreenElement) await doc.exitFullscreen();
-    } catch {
-      /* ignorar */
-    }
-    avatar.resize();
-  }
-
+  doc.getElementById('btn-calibrate').addEventListener('click', () => {
+    if (!tracker.calibrate()) toast('Activa la cámara para calibrar');
+  });
   doc.getElementById('btn-stream').addEventListener('click', () => { void enterStream(); });
   doc.getElementById('btn-exit-stream').addEventListener('click', () => { void exitStream(); });
+
   doc.addEventListener('fullscreenchange', () => {
     if (!doc.fullscreenElement && doc.body.classList.contains('stream')) {
       doc.body.classList.remove('stream');
+      hideUi(false);
       doc.getElementById('btn-exit-stream').hidden = true;
     }
-    avatar.resize();
-  });
-  doc.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && doc.body.classList.contains('stream')) void exitStream();
+    puppet.resize();
   });
 
-  const stage = doc.getElementById('stage');
+  doc.addEventListener('keydown', (event) => {
+    const tag = event.target?.tagName;
+    const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    if (event.key === 'Escape' && doc.body.classList.contains('stream')) {
+      void exitStream();
+      return;
+    }
+    if (typing) return;
+    if (event.key === 'h' || event.key === 'H') {
+      if (event.repeat) return;
+      hideUi(!doc.body.classList.contains('ui-hidden'));
+    }
+    if (event.code === 'Space' || event.key === ' ') {
+      if (event.repeat) return;
+      event.preventDefault();
+      puppet.triggerJump();
+    }
+  });
+
   stage.addEventListener('pointermove', (event) => {
     if (tracker.isRunning()) return;
-    const rect = canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    demo.x = (event.clientX - rect.left) / rect.width;
-    demo.y = (event.clientY - rect.top) / rect.height;
-    demo.active = true;
+    placeDemo(event);
+    if (!dragging) demo.down = event.buttons > 0;
   });
-  stage.addEventListener('pointerleave', () => { demo.active = false; });
   stage.addEventListener('pointerdown', (event) => {
-    if (tracker.isRunning()) return;
+    if (tracker.isRunning() || event.button !== 0 || isControl(event)) return;
+    dragging = true;
+    demo.down = true;
+    placeDemo(event);
+    try { stage.setPointerCapture(event.pointerId); } catch { /* el puntero puede no admitir captura */ }
+  });
+  stage.addEventListener('pointerup', (event) => {
+    dragging = false;
+    demo.down = false;
     const rect = canvas.getBoundingClientRect();
-    demo.x = (event.clientX - rect.left) / rect.width;
-    demo.y = (event.clientY - rect.top) / rect.height;
-    demo.active = true;
+    const inside = event.clientX >= rect.left && event.clientX <= rect.right
+      && event.clientY >= rect.top && event.clientY <= rect.bottom;
+    if (!inside) demo.active = false;
+  });
+  stage.addEventListener('pointercancel', () => {
+    dragging = false;
+    demo.down = false;
+  });
+  stage.addEventListener('pointerleave', () => {
+    if (!dragging) demo.active = false;
+  });
+  stage.addEventListener('dblclick', () => {
+    if (doc.body.classList.contains('ui-hidden')) hideUi(false);
   });
 
-  function currentTargets(now) {
-    const sample = tracker.consumeFrame();
-    if (tracker.isRunning() && sample?.targets?.face) return sample.targets;
-    if (!tracker.isRunning()) return decorativeTargets(now / 1000, demo.active ? demo : null);
-    return decorativeTargets(now / 1000, null);
-  }
-
-  function frame(now) {
-    try {
-      const dt = Math.min(0.05, (now - last) / 1000);
-      last = now;
-      const targets = currentTargets(now);
-      avatar.update(dt, targets, settings);
-      avatar.draw({ settings });
-      tracker.drawDebug(overlay, settings.showLandmarks);
-    } catch (err) {
-      console.error(err);
-    }
-    requestAnimationFrame(frame);
-  }
-
-  const mobile = window.matchMedia('(max-width: 900px)').matches;
+  const mobile = root?.matchMedia?.('(max-width: 900px)')?.matches ?? false;
   setPanel(!mobile);
+  bindSliders();
   syncControls();
   syncCameraButtons();
   setStatus(MSG.loading);
@@ -366,5 +447,5 @@ export function mount(doc) {
     });
 
   requestAnimationFrame(frame);
-  return { settings, avatar, tracker };
+  return { settings, puppet, tracker };
 }

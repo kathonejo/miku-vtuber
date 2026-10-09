@@ -1,20 +1,28 @@
-# Miku VTuber
+# Bunny VTuber
 
-Avatar **VTuber** en el navegador: una idol anime **original**, dibujada con Canvas 2D y animada con tu cámara. La interfaz está en español.
-
-El personaje es un diseño propio inspirado en el estilo de las idols virtuales (coleta teal, auriculares, escenario). **No** usa modelos, texturas ni ilustraciones con copyright: todo el cuerpo se dibuja por código.
+Marioneta **VTuber** de papel en el navegador. El dibujo de una chica conejo, recortado en láminas, copia tu cabeza, tus ojos, tu boca y tus brazos. Todo se dibuja con Canvas 2D, al estilo de las hojas planas de PaRappa the Rapper: giro de cartulina, rebote, aleteo de boca y una sombra bajo cada recorte. La interfaz está en español.
 
 ## Qué puedes hacer
 
-- Seguir la **cabeza** (giro, inclinación y rotación), el **parpadeo**, la **mirada**, la **boca**, las **cejas** y los **brazos**.
-- Modo **espejo**: si levantas la mano derecha, se mueve el brazo del mismo lado de la pantalla. La vista previa de la webcam también va en espejo.
-- **Modo demo** sin cámara: el avatar respira, se balancea, parpadea solo y la cabeza sigue al ratón.
-- Cinco atuendos distintos (clásico, casual, idol, invierno y marinera), cinco paletas, peinados y accesorios.
-- Fondos de escenario, habitación, noche, croma verde `#00FF00`, croma azul `#0000FF` y fondo transparente para la captura PNG.
-- Guardado automático en `localStorage`, botón **Guardar**, **Restablecer**, **Aleatorio** y **Captura**.
-- **Pantalla completa / Modo stream**: oculta la interfaz y deja solo el lienzo, útil para capturarlo en OBS.
+- Seguir la **cabeza** (giro, inclinación y rotación), el **parpadeo** (también guiños), la **mirada**, la **boca** por visemas y los **brazos** (hombros y muñecas).
+- **Calibrar** la pose neutra con el botón Calibrar, o de forma automática durante el primer segundo y medio de cámara.
+- Modo **espejo** (activo por defecto): el avatar se mueve como un espejo. La vista previa de la webcam también.
+- **Modo demo** sin cámara: la marioneta respira, se balancea y parpadea sola. El ratón mueve la cabeza y la mirada; mantener pulsado abre la boca.
+- Estilos de color (Original, Menta, Atardecer, Lavanda, Algodón, Papel, Neón), accesorios dibujados a rotulador y varios fondos, incluidos croma verde `#00ff00` y croma azul `#0000ff`.
+- Sombra de papel, grosor de cartulina y rebote, cada uno con su interruptor.
+- Guardado en `localStorage` (`bunny-vtuber-settings-v1`), botones **Guardar**, **Restablecer**, **Aleatorio** y **Captura** (PNG del lienzo).
+- **Modo stream**: oculta la interfaz para capturar el lienzo en OBS.
 
-El vídeo de la cámara **no se envía a ningún servidor**. El seguimiento corre en tu navegador. Los modelos de MediaPipe se descargan de Google y el runtime WASM, de jsDelivr, la primera vez que activas la cámara.
+## Controles
+
+- **H** oculta o muestra la interfaz.
+- **Doble clic** en el escenario la devuelve cuando está oculta.
+- **Espacio** hace un salto (aplastar, estirar y aterrizar).
+- **Esc** sale del modo stream.
+
+## Privacidad
+
+El vídeo de la cámara **no se envía a ningún servidor** y no sale de este dispositivo. El seguimiento corre en el navegador. Los modelos de MediaPipe se descargan de Google y el runtime WASM, de jsDelivr, la primera vez que se prepara la cámara.
 
 ## Requisitos
 
@@ -28,7 +36,7 @@ npm install
 npm run dev
 ```
 
-Abre la dirección que muestra Vite. Pulsa **Activar cámara** y acepta el permiso. Si no hay cámara, entra en **Continuar en modo demo**.
+Abre la dirección que muestra Vite. Pulsa **Activar cámara** y acepta el permiso, o entra con **Continuar en modo demo**.
 
 Para generar el sitio estático en `dist/`:
 
@@ -41,18 +49,34 @@ npm run preview
 
 Se usa `@mediapipe/tasks-vision` (versión 1.1.0):
 
-- `FaceLandmarker` (modelo float16) con blendshapes y matriz de transformación facial
-- `PoseLandmarker` lite para hombros, codos y muñecas
+- `FaceLandmarker` (modelo float16) con blendshapes y matriz de transformación facial, cada fotograma
+- `PoseLandmarker` lite para hombros y muñecas, cada dos fotogramas
 - WASM desde `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm`
 - Si el delegado GPU falla al crear los modelos, se reintenta en CPU
 
-Los puntos con visibilidad menor a 0,5 se ignoran y el brazo vuelve con suavidad a la pose de reposo. Todos los valores se suavizan con una interpolación exponencial para evitar el temblor.
+La cabeza, la mirada y los puntos del cuerpo pasan por un filtro One Euro. Los saltos imposibles de la pose se descartan. El parpadeo y la boca suben rápido y bajan más despacio. Los puntos con visibilidad menor a 0,5 se ignoran y los brazos vuelven con suavidad al reposo.
 
-## Atajos
+## Créditos
 
-- **Esc** sale del modo stream
-- El panel **Personalizar** se puede cerrar; en pantallas estrechas aparece como hoja inferior
+Arte original de Katherine Sánchez Carrasco.
+
+Ideas de seguimiento (filtro One Euro, rechazo de saltos, visemas, ocultar UI con H) inspiradas en luloxi/vtuber (https://github.com/luloxi/vtuber); código propio.
+
+Las láminas de `public/bunny/` se reconstruyen con `tools/bunny/build.py` (Python, Pillow, numpy, opencv y scipy), que recorta `tools/bunny/orig.png`:
+
+```bash
+cd tools/bunny && OUT=../../public/bunny python build.py
+```
 
 ## Aviso
 
-Proyecto de fan, sin afiliación con Hatsune Miku, Crypton Future Media ni otros titulares. El personaje de esta app es un diseño original.
+El nombre PaRappa se usa solo para describir el estilo de animación en papel. Esta aplicación no está afiliada con ese juego ni con sus titulares.
+
+### Regenerar las capas del dibujo
+
+```bash
+cd tools/bunny
+python3 prepare.py   # orig.png (2000 px) -> work2.png (lienzo 900x900)
+OUT=../../public/bunny python3 build.py   # recorta capas, ojos, bocas y rig.json
+```
+Requiere Pillow, numpy, opencv-python-headless y scipy.

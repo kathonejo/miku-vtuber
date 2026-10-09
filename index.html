@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta
       name="description"
-      content="Avatar VTuber anime original en el navegador, con seguimiento de cara y brazos."
+      content="Marioneta VTuber de papel en el navegador. Tu dibujo sigue tu cabeza, ojos, boca y brazos. El vídeo no sale de este dispositivo."
     />
-    <title>Miku VTuber</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect fill='%230c1114' width='64' height='64' rx='14'/%3E%3Ccircle cx='32' cy='28' r='12' fill='%23ffd2b8'/%3E%3Cpath d='M18 30c-6 10-6 24-2 30' stroke='%2339c5bb' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3Cpath d='M46 30c6 10 6 24 2 30' stroke='%2339c5bb' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <title>Bunny VTuber</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23243a5c'/%3E%3Cellipse cx='20' cy='22' rx='8' ry='16' fill='%23c8e03c'/%3E%3Cellipse cx='44' cy='20' rx='8' ry='16' fill='%23c8e03c'/%3E%3Cellipse cx='20' cy='22' rx='3.5' ry='9' fill='%23f7a98f'/%3E%3Cellipse cx='44' cy='20' rx='3.5' ry='9' fill='%23f7a98f'/%3E%3Ccircle cx='32' cy='38' r='14' fill='%23f7a98f'/%3E%3Cellipse cx='26' cy='37' rx='3.2' ry='3.8' fill='%23fff5dc' stroke='%230e5797' stroke-width='1.4'/%3E%3Cellipse cx='38' cy='36' rx='3.2' ry='3.8' fill='%23fff5dc' stroke='%230e5797' stroke-width='1.4'/%3E%3Cpath d='M26 44c2.2 2.6 9.6 2.6 12 0' stroke='%23f0703c' stroke-width='1.7' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -19,7 +19,7 @@
         <div class="brand">
           <span class="logo" aria-hidden="true"></span>
           <div>
-            <strong>Miku VTuber</strong>
+            <strong>Bunny VTuber</strong>
             <p id="status" role="status">Iniciando…</p>
           </div>
         </div>
@@ -33,18 +33,17 @@
       </header>
       <div id="layout" class="panel-open">
         <section id="stage">
-          <canvas id="avatar" aria-label="Avatar VTuber"></canvas>
+          <canvas id="avatar" aria-label="Marioneta Bunny VTuber"></canvas>
           <div id="preview" hidden>
             <video id="webcam" playsinline autoplay muted></video>
             <canvas id="landmarks" aria-hidden="true"></canvas>
           </div>
           <div id="start-screen">
             <div class="card">
-              <p class="eyebrow">Avatar en el navegador</p>
-              <h1>Miku VTuber</h1>
+              <p class="eyebrow">Marioneta de papel</p>
+              <h1>Bunny VTuber</h1>
               <p class="lead">
-                Una idol anime original que copia tu cara y tus brazos.
-                El vídeo no sale de este dispositivo.
+                Tu dibujo cobra vida: copia tu cabeza, ojos, boca y brazos con la cámara. El vídeo no sale de este dispositivo.
               </p>
               <div class="card-actions">
                 <button id="btn-start" type="button" class="primary">Activar cámara</button>
@@ -62,28 +61,12 @@
           </div>
           <div class="panel-scroll">
             <section>
-              <h3>Atuendos</h3>
-              <div id="outfit-list" class="choice-grid"></div>
-            </section>
-            <section>
-              <h3>Paleta</h3>
-              <div id="palette-list" class="choice-grid"></div>
-            </section>
-            <section>
-              <h3>Colores</h3>
-              <label class="color-row">Cabello <input id="color-hair" type="color" /></label>
-              <label class="color-row">Ojos <input id="color-eye" type="color" /></label>
-              <label class="color-row">Tono de piel <input id="color-skin" type="color" /></label>
-              <label class="color-row">Acento del atuendo <input id="color-accent" type="color" /></label>
-              <div id="skin-list" class="choice-grid skins"></div>
+              <h3>Estilo</h3>
+              <div id="style-list" class="choice-grid"></div>
             </section>
             <section>
               <h3>Accesorios</h3>
               <div id="accessory-list" class="toggle-grid"></div>
-            </section>
-            <section>
-              <h3>Peinado</h3>
-              <div id="hair-list" class="choice-grid"></div>
             </section>
             <section>
               <h3>Expresión</h3>
@@ -96,8 +79,12 @@
                 <input id="sens-blink" type="range" min="0.2" max="2" step="0.05" />
               </label>
               <label class="slider-row">
-                <span>Movimiento de brazos <b id="sens-arms-val"></b></span>
-                <input id="sens-arms" type="range" min="0.2" max="1.8" step="0.05" />
+                <span>Movimiento de la cabeza <b id="sens-head-val"></b></span>
+                <input id="sens-head" type="range" min="0.2" max="1.8" step="0.05" />
+              </label>
+              <label class="slider-row">
+                <span>Rebote <b id="sens-bounce-val"></b></span>
+                <input id="sens-bounce" type="range" min="0" max="1.8" step="0.05" />
               </label>
               <label class="slider-row">
                 <span>Suavizado <b id="sens-smooth-val"></b></span>
@@ -109,19 +96,23 @@
               <div id="bg-list" class="choice-grid"></div>
               <label id="bg-color-wrap" class="color-row">
                 Color personalizado
-                <input id="color-bg" type="color" />
+                <input id="color-bg" type="color" value="#243a5c" />
               </label>
+            </section>
+            <section>
+              <h3>Opciones</h3>
+              <div id="toggle-list" class="toggle-grid"></div>
             </section>
             <section class="actions">
               <button id="btn-save" type="button">Guardar</button>
               <button id="btn-reset" type="button">Restablecer</button>
               <button id="btn-random" type="button">Aleatorio</button>
               <button id="btn-capture" type="button">Captura</button>
-              <button id="btn-stream" type="button" class="wide">Pantalla completa / Modo stream</button>
+              <button id="btn-calibrate" type="button">Calibrar</button>
+              <button id="btn-stream" type="button" class="wide">Modo stream</button>
             </section>
             <p class="fine">
-              Diseño original de fan, inspirado en el estilo de las idols virtuales.
-              No está afiliado a ningún personaje comercial. El seguimiento ocurre en tu navegador.
+              Arte original de Katherine Sánchez Carrasco. El vídeo no sale de este dispositivo. Teclas: H oculta la interfaz, doble clic la devuelve, Espacio salta.
             </p>
           </div>
         </aside>
