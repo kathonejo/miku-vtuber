@@ -16,6 +16,10 @@ Marioneta **VTuber** de papel en el navegador. El dibujo de una chica conejo, re
 - Guardado en `localStorage` (`bunny-vtuber-settings-v1`), botones **Guardar**, **Restablecer**, **Aleatorio** y **Captura** (PNG del lienzo).
 - **Modo stream**: oculta la interfaz para capturar el lienzo en OBS.
 
+## Cámara al revés
+
+Si la webcam está boca abajo o de lado, en **Personalizar → Cámara** (junto a **Espejo**) puedes rotarla 0°, 90°, 180° o 270° y voltearla en horizontal o en vertical. El seguimiento y la vista previa usan esa orientación al momento. **Espejo** no cambia: sigue aplicándose después, sobre la imagen ya orientada.
+
 ## Controles
 
 - **H** oculta o muestra la interfaz.

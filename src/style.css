@@ -132,6 +132,11 @@ button[disabled] { opacity: 0.6; cursor: progress; }
   box-shadow: var(--shadow);
   z-index: 4;
   background: #000;
+  --cam-rot: 0deg;
+  --cam-sx: 1;
+  --cam-sy: 1;
+  --cam-w: 100%;
+  --cam-h: 100%;
 }
 
 #webcam, #landmarks {
@@ -139,15 +144,41 @@ button[disabled] { opacity: 0.6; cursor: progress; }
   inset: 0;
   width: 100%;
   height: 100%;
+  transform-origin: center center;
+}
+
+#webcam {
+  object-fit: fill;
+  background: #000;
+  transform: scaleX(-1) rotate(var(--cam-rot)) scale(var(--cam-sx), var(--cam-sy));
+}
+
+#landmarks {
+  pointer-events: none;
   transform: scaleX(-1);
 }
 
-#webcam { object-fit: fill; background: #000; }
-#landmarks { pointer-events: none; }
+#preview.unmirrored #webcam {
+  transform: rotate(var(--cam-rot)) scale(var(--cam-sx), var(--cam-sy));
+}
 
-#preview.unmirrored #webcam,
 #preview.unmirrored #landmarks {
   transform: none;
+}
+
+#preview.cam-swap #webcam {
+  inset: auto;
+  left: 50%;
+  top: 50%;
+  right: auto;
+  bottom: auto;
+  width: var(--cam-w);
+  height: var(--cam-h);
+  transform: translate(-50%, -50%) scaleX(-1) rotate(var(--cam-rot)) scale(var(--cam-sx), var(--cam-sy));
+}
+
+#preview.unmirrored.cam-swap #webcam {
+  transform: translate(-50%, -50%) rotate(var(--cam-rot)) scale(var(--cam-sx), var(--cam-sy));
 }
 
 #start-screen {
@@ -236,11 +267,36 @@ button[disabled] { opacity: 0.6; cursor: progress; }
 }
 
 .choice-grid button[aria-pressed="true"],
-.toggle-grid button[aria-pressed="true"] {
+.toggle-grid button[aria-pressed="true"],
+.cam-rotate button[aria-pressed="true"] {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
   background: rgba(73, 198, 214, 0.16);
 }
+
+.cam-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+}
+
+.cam-rotate {
+  display: flex;
+}
+
+.cam-rotate button {
+  flex: 1;
+  text-align: center;
+  min-height: 40px;
+  padding: 8px 0;
+  border-radius: 0;
+}
+
+.cam-rotate button:first-child { border-radius: 12px 0 0 12px; }
+.cam-rotate button:last-child { border-radius: 0 12px 12px 0; }
+.cam-rotate button + button { margin-left: -1px; }
 
 .color-row, .slider-row {
   display: flex;

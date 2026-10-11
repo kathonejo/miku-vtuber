@@ -12,6 +12,7 @@ import {
   expApproach,
   finite,
 } from './filters.js';
+import { camRotation } from './settings.js';
 
 /** Coincide con @mediapipe/tasks-vision instalado (1.1.0). */
 export const MP_VERSION = '1.1.0';
@@ -384,6 +385,10 @@ export function createTracker(video, onStatus) {
   let wristUpSm = 0;
   let heartRotSm = 0;
   let shoulderSm = 0;
+  let orientCanvas = null;
+  let orientCtx = null;
+  let orientKey = null;
+  let currentOrient = { rotate: 0, flipH: false, flipV: false };
 
   const calib = {
     collecting: false,
@@ -435,6 +440,81 @@ export function createTracker(video, onStatus) {
     lastFilterT = null;
     output = null;
     frameIndex = 0;
+  }
+
+  function readOrient(settings) {
+    return {
+      rotate: camRotation(settings?.camRotate),
+      flipH: settings?.camFlipH === true,
+      flipV: settings?.camFlipV === true,
+    };
+  }
+
+  function orientActive(o) {
+    return o.rotate !== 0 || o.flipH || o.flipV;
+  }
+
+  /** Tamaño del fotograma que ve el detector. 90° y 270° intercambian lados. */
+  function frameSize(settings) {
+    const o = settings ? readOrient(settings) : currentOrient;
+    const vw = video?.videoWidth || 0;
+    const vh = video?.videoHeight || 0;
+    if (o.rotate === 90 || o.rotate === 270) return { w: vh, h: vw };
+    return { w: vw, h: vh };
+  }
+
+  function noteOrient(settings) {
+    const next = readOrient(settings);
+    currentOrient = next;
+    const key = `${next.rotate}:${next.flipH ? 1 : 0}:${next.flipV ? 1 : 0}`;
+    if (orientKey === null) {
+      orientKey = key;
+      return false;
+    }
+    if (key === orientKey) return false;
+    orientKey = key;
+    return true;
+  }
+
+  /**
+   * Dibuja el vídeo ya rotado y volteado. La escala es la del fotograma
+   * (antes de rotar); el espejo no entra aquí, se aplica después en los puntos.
+   */
+  function orientedFrame(o) {
+    const srcW = video.videoWidth;
+    const srcH = video.videoHeight;
+    const swap = o.rotate === 90 || o.rotate === 270;
+    const dstW = swap ? srcH : srcW;
+    const dstH = swap ? srcW : srcH;
+    if (!orientCanvas) {
+      orientCanvas = video.ownerDocument.createElement('canvas');
+      orientCtx = orientCanvas.getContext('2d');
+    }
+    if (!orientCtx) return video;
+    if (orientCanvas.width !== dstW || orientCanvas.height !== dstH) {
+      orientCanvas.width = dstW;
+      orientCanvas.height = dstH;
+    }
+    const ctx = orientCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, dstW, dstH);
+    ctx.translate(dstW / 2, dstH / 2);
+    ctx.rotate((o.rotate * Math.PI) / 180);
+    ctx.scale(o.flipH ? -1 : 1, o.flipV ? -1 : 1);
+    ctx.drawImage(video, -srcW / 2, -srcH / 2, srcW, srcH);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    return orientCanvas;
+  }
+
+  function resetPose() {
+    lastVideoTime = -1;
+    lastFace = null;
+    lastPose = null;
+    resetFilters();
+    calib.base = zeroBaseline();
+    calib.collecting = false;
+    calib.samples = [];
+    calibArmed = running;
   }
 
   function beginCalib(now) {
@@ -554,13 +634,7 @@ export function createTracker(video, onStatus) {
       video.playsInline = true;
       await video.play();
       running = true;
-      lastVideoTime = -1;
-      lastFace = null;
-      lastPose = null;
-      resetFilters();
-      calib.base = zeroBaseline();
-      calib.collecting = false;
-      calibArmed = true;
+      resetPose();
       const msg = delegate === 'CPU' ? MSG.cpu : MSG.camera;
       status(msg);
       return { ok: true, message: msg };
@@ -802,6 +876,7 @@ export function createTracker(video, onStatus) {
 
   function consumeFrame(settings) {
     if (!running || !face || !pose || falling) return null;
+    if (noteOrient(settings)) resetPose();
     if (!video || video.readyState < 2 || !video.videoWidth) return output;
     const now = performance.now() / 1000;
     if (calib.collecting && now - calib.startedAt >= 1.5) finishCalib();
@@ -809,11 +884,12 @@ export function createTracker(video, onStatus) {
     lastVideoTime = video.currentTime;
     const ts = nextTimestamp();
     let poseFresh = false;
+    const source = orientActive(currentOrient) ? orientedFrame(currentOrient) : video;
     try {
-      lastFace = face.detectForVideo(video, ts);
+      lastFace = face.detectForVideo(source, ts);
       frameIndex += 1;
       if (frameIndex % 2 === 0) {
-        lastPose = pose.detectForVideo(video, ts);
+        lastPose = pose.detectForVideo(source, ts);
         poseFresh = true;
       }
     } catch (err) {
@@ -828,10 +904,24 @@ export function createTracker(video, onStatus) {
     return buildTargets(settings || {}, now, poseFresh);
   }
 
+  function cameraDebug(settings) {
+    const o = readOrient(settings);
+    const size = frameSize(settings);
+    return {
+      rotate: o.rotate,
+      flipH: o.flipH,
+      flipV: o.flipV,
+      frameW: size.w,
+      frameH: size.h,
+      usingCanvas: orientActive(o),
+    };
+  }
+
   function drawDebug(canvas, enabled) {
     if (!canvas) return;
-    const w = video.videoWidth || 640;
-    const h = video.videoHeight || 480;
+    const size = frameSize();
+    const w = size.w || 640;
+    const h = size.h || 480;
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
@@ -899,8 +989,11 @@ export function createTracker(video, onStatus) {
     consumeFrame,
     drawDebug,
     calibrate,
+    frameSize,
+    cameraDebug,
     isCalibrating: () => calib.collecting,
     isRunning: () => running,
     getDelegate: () => delegate,
+    lastOutput: () => output,
   };
 }

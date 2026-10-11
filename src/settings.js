@@ -4,6 +4,13 @@ import { clamp, finite } from './filters.js';
 
 export const STORAGE_KEY = 'bunny-vtuber-settings-v1';
 
+export const CAM_ROTATIONS = [0, 90, 180, 270];
+
+export function camRotation(value) {
+  const n = Number(value);
+  return CAM_ROTATIONS.includes(n) ? n : 0;
+}
+
 export const STYLES = [
   { id: 'original', name: 'Original', filter: 'none' },
   { id: 'menta', name: 'Menta', filter: 'hue-rotate(110deg) saturate(1.05)' },
@@ -74,6 +81,9 @@ export const DEFAULT_SETTINGS = {
   showPreview: true,
   showLandmarks: false,
   mirror: true,
+  camRotate: 0,
+  camFlipH: false,
+  camFlipV: false,
   paperShadow: true,
   paperThickness: true,
   shadowIntensity: 1,
@@ -125,6 +135,9 @@ function mergeSettings(base, saved) {
   out.showPreview = Boolean(out.showPreview);
   out.showLandmarks = Boolean(out.showLandmarks);
   out.mirror = out.mirror !== false;
+  out.camRotate = camRotation(out.camRotate);
+  out.camFlipH = out.camFlipH === true;
+  out.camFlipV = out.camFlipV === true;
   out.paperShadow = out.paperShadow !== false;
   out.paperThickness = out.paperThickness !== false;
   out.shadowIntensity = clamp(finite(Number(out.shadowIntensity), 1), 0, 1.5);

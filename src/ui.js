@@ -10,6 +10,7 @@ import {
   BACKGROUNDS,
   STYLES,
   TOGGLE_DEFS,
+  camRotation,
   loadSettings,
   randomizeSettings,
   resetSettings,
@@ -124,16 +125,49 @@ export function mount(doc) {
   }
 
   const tracker = createTracker(video, setStatus);
+  api.cameraDebug = () => tracker.cameraDebug(settings);
+  api.trackDebug = () => tracker.lastOutput();
 
   function persist() {
     return saveSettings(settings);
   }
 
+  let previewKey = '';
+
   function syncPreview() {
     const show = settings.showPreview && tracker.isRunning();
     preview.hidden = !show;
     preview.classList.toggle('unmirrored', !settings.mirror);
-    if (video.videoWidth) preview.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+    const rot = camRotation(settings.camRotate);
+    const flipH = settings.camFlipH === true;
+    const flipV = settings.camFlipV === true;
+    const vw = video.videoWidth || 0;
+    const vh = video.videoHeight || 0;
+    const key = `${show}|${settings.mirror}|${rot}|${flipH}|${flipV}|${vw}|${vh}`;
+    if (key === previewKey) return;
+    previewKey = key;
+    const swap = rot === 90 || rot === 270;
+    preview.classList.toggle('cam-swap', swap);
+    preview.style.setProperty('--cam-rot', `${rot}deg`);
+    preview.style.setProperty('--cam-sx', flipH ? '-1' : '1');
+    preview.style.setProperty('--cam-sy', flipV ? '-1' : '1');
+    if (swap && vw && vh) {
+      preview.style.setProperty('--cam-w', `${(vw / vh) * 100}%`);
+      preview.style.setProperty('--cam-h', `${(vh / vw) * 100}%`);
+    }
+    const size = tracker.frameSize(settings);
+    if (size.w > 0 && size.h > 0) preview.style.aspectRatio = `${size.w} / ${size.h}`;
+  }
+
+  function syncCameraOrient() {
+    const rot = camRotation(settings.camRotate);
+    for (const btn of doc.querySelectorAll('#cam-rotate button')) {
+      btn.setAttribute('aria-pressed', String(camRotation(btn.dataset.rotate) === rot));
+    }
+    const flipH = doc.getElementById('btn-cam-flip-h');
+    const flipV = doc.getElementById('btn-cam-flip-v');
+    if (flipH) flipH.setAttribute('aria-pressed', String(settings.camFlipH === true));
+    if (flipV) flipV.setAttribute('aria-pressed', String(settings.camFlipV === true));
   }
 
   function syncCameraButtons() {
@@ -214,6 +248,7 @@ export function mount(doc) {
     if (shadowAuto) shadowAuto.checked = settings.shadowAuto === true;
     doc.getElementById('btn-preview').setAttribute('aria-pressed', String(settings.showPreview));
     doc.getElementById('btn-landmarks').setAttribute('aria-pressed', String(settings.showLandmarks));
+    syncCameraOrient();
     const winkBtn = doc.getElementById('btn-wink');
     if (winkBtn) winkBtn.setAttribute('aria-pressed', String(settings.independentWink === true));
     const bar = doc.getElementById('action-bar');
@@ -398,6 +433,7 @@ export function mount(doc) {
       puppet.update(dt, targets, settings);
       puppet.draw(settings);
       tracker.drawDebug(overlay, settings.showLandmarks);
+      syncPreview();
     } catch (err) {
       console.error(err);
     }
@@ -437,6 +473,23 @@ export function mount(doc) {
       renderChoices();
     });
   }
+  for (const btn of doc.querySelectorAll('#cam-rotate button')) {
+    btn.addEventListener('click', () => {
+      settings.camRotate = camRotation(btn.dataset.rotate);
+      persist();
+      syncChrome();
+    });
+  }
+  doc.getElementById('btn-cam-flip-h').addEventListener('click', () => {
+    settings.camFlipH = settings.camFlipH !== true;
+    persist();
+    syncChrome();
+  });
+  doc.getElementById('btn-cam-flip-v').addEventListener('click', () => {
+    settings.camFlipV = settings.camFlipV !== true;
+    persist();
+    syncChrome();
+  });
   doc.getElementById('btn-close-panel').addEventListener('click', () => setPanel(false));
   doc.getElementById('btn-close-rig').addEventListener('click', () => rig.close());
   backdrop.addEventListener('click', () => {
