@@ -5,7 +5,7 @@ Marioneta **VTuber** de papel en el navegador. El dibujo de una chica conejo, re
 ## Qué puedes hacer
 
 - Seguir la **cabeza** (giro, inclinación y rotación), el **parpadeo** (los dos ojos juntos; el guiño independiente es opcional), la **mirada**, la **boca** por visemas y los **brazos** (hombros y muñecas).
-- Elegir **Ojos A** u **Ojos B** (dos estilos del dibujo, no pasos del parpadeo) y lanzar gestos con las mangas (teclas 1–6).
+- Elegir **Ojos A** u **Ojos B** (dos estilos del dibujo, no pasos del parpadeo).
 - Ajustar el pelo y las orejas en el panel **Rigging**, con pivote, **Sigue a** y un cuello opcional.
 - Cargar **tu propio personaje** desde un PSD (botón **Personajes**). La conejita oficial sigue disponible.
 - **Calibrar** la pose neutra con el botón Calibrar, o de forma automática durante el primer segundo y medio de cámara.
@@ -26,7 +26,7 @@ Si la webcam está boca abajo o de lado, en **Personalizar → Cámara** (junto 
 - **Doble clic** en el escenario la devuelve cuando está oculta.
 - **Espacio** hace un salto (aplastar, estirar y aterrizar).
 - **Esc** sale del modo stream.
-- **1–6** lanzan un gesto con las mangas (si el foco no está en un campo de texto).
+- **S** activa o apaga el modo showcase (si el foco no está en un campo de texto).
 
 ## Parpadeo estable
 
@@ -54,20 +54,13 @@ En Estilo, **Ojos A** y **Ojos B** eligen el dibujo del ojo abierto. El parpadeo
 
 Lo mismo con `der`. Si solo está el ojo completo, se desplaza entero con la mirada. Si hay blanco, iris y pupila se recortan a su silueta.
 
-## Acciones con las mangas
+## Gestos con las mangas
 
-La ropa le tapa las manos: los gestos se leen en las mangas largas, sin dedos ni palmas. La barra **Acciones** flota abajo del escenario (se oculta con H y en modo stream).
+Los gestos de las mangas están desactivados por ahora. No hay barra de acciones ni atajos del 1 al 6.
 
-| Tecla | Gesto | Qué hace |
-| --- | --- | --- |
-| 1 | Saludar | La manga derecha sube junto a la cara y el puño de tela ondea |
-| 2 | Corazón | Las dos mangas se juntan en el pecho y forman un corazón |
-| 3 | Paz | La manga derecha sube; la punta se abre en una V de tela y brilla una estrella |
-| 4 | Aplaudir | Las mangas chocan delante del pecho, con un «pap» de papel |
-| 5 | Señalar | La manga izquierda se estira y la punta se cierra en un cono |
-| 6 | ¡Celebrar! | Las dos mangas suben, las puntas ondean y da un salto |
+## Modo showcase
 
-Si la cámara ve las muñecas altas y no hay un gesto pulsado, salen solas las mangas de celebrar, sin el salto.
+El botón **Showcase** de la barra superior, o la tecla **S**, anima la marioneta sola: mira alrededor, parpadea, sonríe y habla sin cámara. Mientras está activo, el seguimiento y el ratón del modo demo no mandan, y el estado dice «Modo showcase». La opción se guarda con el resto de ajustes.
 
 ## Editor de rigging
 

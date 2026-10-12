@@ -93,6 +93,7 @@ export const DEFAULT_SETTINGS = {
   bounce: true,
   independentWink: false,
   eyeStyle: 'A',
+  showcase: false,
 };
 
 export function isHex(v) {
@@ -147,6 +148,7 @@ function mergeSettings(base, saved) {
   out.bounce = out.bounce !== false;
   out.independentWink = out.independentWink === true;
   out.eyeStyle = out.eyeStyle === 'B' ? 'B' : 'A';
+  out.showcase = out.showcase === true;
   return out;
 }
 

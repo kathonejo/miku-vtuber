@@ -1,6 +1,7 @@
 import { createActions } from './actions.js';
 import { createCharPanel } from './charpanel.js';
 import { finite } from './filters.js';
+import { createShowcase } from './showcase.js';
 import { composeManifest, importPsd } from './psdimport/read.js';
 import { createPuppet } from './puppet.js';
 import { createRigEditor } from './rigeditor.js';
@@ -66,6 +67,7 @@ export function mount(doc) {
 
   const puppet = createPuppet(canvas);
   const actions = createActions();
+  const showcase = createShowcase();
   const rig = createRigEditor(doc, puppet, (message) => toast(message));
   let debugTargets = null;
   let toastTimer = 0;
@@ -127,6 +129,13 @@ export function mount(doc) {
   const tracker = createTracker(video, setStatus);
   api.cameraDebug = () => tracker.cameraDebug(settings);
   api.trackDebug = () => tracker.lastOutput();
+  api.showcase = (on) => {
+    setShowcase(on === true);
+    return settings.showcase;
+  };
+  api.showcaseSeed = (n) => {
+    showcase.seed(n);
+  };
 
   function persist() {
     return saveSettings(settings);
@@ -248,17 +257,15 @@ export function mount(doc) {
     if (shadowAuto) shadowAuto.checked = settings.shadowAuto === true;
     doc.getElementById('btn-preview').setAttribute('aria-pressed', String(settings.showPreview));
     doc.getElementById('btn-landmarks').setAttribute('aria-pressed', String(settings.showLandmarks));
+    const showBtn = doc.getElementById('btn-showcase');
+    if (showBtn) showBtn.setAttribute('aria-pressed', String(settings.showcase === true));
+    if (!settings.showcase && statusEl.textContent === 'Modo showcase') {
+      if (tracker.isRunning()) setStatus(tracker.getDelegate() === 'CPU' ? MSG.cpu : MSG.camera);
+      else setStatus(startScreen.hidden ? MSG.demo : MSG.ready);
+    }
     syncCameraOrient();
     const winkBtn = doc.getElementById('btn-wink');
     if (winkBtn) winkBtn.setAttribute('aria-pressed', String(settings.independentWink === true));
-    const bar = doc.getElementById('action-bar');
-    if (bar) {
-      bar.hidden = !startScreen.hidden;
-      const active = actions.currentId();
-      for (const btn of bar.querySelectorAll('button[data-action]')) {
-        btn.setAttribute('aria-pressed', String(btn.dataset.action === active));
-      }
-    }
     const open = layout.classList.contains('panel-open');
     doc.getElementById('btn-panel').setAttribute('aria-expanded', String(open));
     syncPreview();
@@ -339,11 +346,12 @@ export function mount(doc) {
     }
     syncCameraButtons();
     syncChrome();
+    if (settings.showcase) setStatus('Modo showcase');
   }
 
   function enterDemo() {
     startScreen.hidden = true;
-    if (!tracker.isRunning()) setStatus(MSG.demo);
+    if (!tracker.isRunning() && !settings.showcase) setStatus(MSG.demo);
     syncChrome();
   }
 
@@ -385,9 +393,17 @@ export function mount(doc) {
     return Boolean(el?.closest?.('button, a, input, textarea, select, label'));
   }
 
-  function currentTargets(now) {
+  let showcaseJump = 0;
+
+  function currentTargets(now, dt) {
     const sample = tracker.isRunning() ? tracker.consumeFrame(settings) : null;
+    showcaseJump = 0;
     if (debugTargets) return coerceDebug(debugTargets);
+    if (settings.showcase) {
+      const shown = showcase.step(dt);
+      showcaseJump = shown.jump || 0;
+      return shown.targets;
+    }
     if (tracker.isRunning() && sample?.face) return sample;
     if (tracker.isRunning()) {
       const idle = decorativeTargets(now / 1000, null, settings);
@@ -401,19 +417,27 @@ export function mount(doc) {
     return decorativeTargets(now / 1000, demo.active ? demo : null, settings);
   }
 
-  function syncActionPressed(id) {
-    const bar = doc.getElementById('action-bar');
-    if (!bar) return;
-    for (const btn of bar.querySelectorAll('button[data-action]')) {
-      btn.setAttribute('aria-pressed', String(btn.dataset.action === id));
+  function setShowcase(on) {
+    settings.showcase = on === true;
+    persist();
+    const btn = doc.getElementById('btn-showcase');
+    if (btn) btn.setAttribute('aria-pressed', String(settings.showcase));
+    if (settings.showcase) {
+      startScreen.hidden = true;
+      demo.active = false;
+      demo.down = false;
+      setStatus('Modo showcase');
+      return;
     }
+    if (tracker.isRunning()) setStatus(tracker.getDelegate() === 'CPU' ? MSG.cpu : MSG.camera);
+    else setStatus(startScreen.hidden ? MSG.demo : MSG.ready);
   }
 
   function watchCalibration() {
     const calibrating = tracker.isCalibrating();
-    if (calibrating && !wasCalibrating) setStatus(MSG.calibrating);
+    if (!settings.showcase && calibrating && !wasCalibrating) setStatus(MSG.calibrating);
     if (!calibrating && wasCalibrating && tracker.isRunning()) {
-      setStatus(tracker.getDelegate() === 'CPU' ? MSG.cpu : MSG.camera);
+      if (!settings.showcase) setStatus(tracker.getDelegate() === 'CPU' ? MSG.cpu : MSG.camera);
       toast('Calibración lista');
     }
     wasCalibrating = calibrating;
@@ -424,16 +448,20 @@ export function mount(doc) {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       watchCalibration();
-      const raw = currentTargets(now);
+      const raw = currentTargets(now, dt);
+      if (showcaseJump) puppet.triggerJump(showcaseJump);
       const fx = actions.step(dt, raw);
       if (fx.jump) puppet.triggerJump();
       let targets = actions.merge(raw, fx);
+      if (settings.showcase && !fx.id) {
+        targets.exprSmile = Math.min(1, Math.max(0, raw.smile || 0));
+      }
       if (rig.previewing()) targets = shakeTargets(targets, now / 1000);
-      syncActionPressed(fx.id);
       puppet.update(dt, targets, settings);
       puppet.draw(settings);
       tracker.drawDebug(overlay, settings.showLandmarks);
       syncPreview();
+      if (settings.showcase && statusEl.textContent !== 'Modo showcase') setStatus('Modo showcase');
     } catch (err) {
       console.error(err);
     }
@@ -446,7 +474,7 @@ export function mount(doc) {
   doc.getElementById('btn-stop').addEventListener('click', () => {
     tracker.stop();
     syncCameraButtons();
-    setStatus(MSG.stopped);
+    setStatus(settings.showcase ? 'Modo showcase' : MSG.stopped);
   });
   doc.getElementById('btn-preview').addEventListener('click', () => {
     settings.showPreview = !settings.showPreview;
@@ -530,10 +558,8 @@ export function mount(doc) {
     persist();
     syncChrome();
   });
-  doc.getElementById('action-bar').addEventListener('click', (event) => {
-    const btn = event.target.closest('button[data-action]');
-    if (!btn) return;
-    actions.trigger(btn.dataset.action);
+  doc.getElementById('btn-showcase').addEventListener('click', () => {
+    setShowcase(!settings.showcase);
   });
   doc.getElementById('btn-stream').addEventListener('click', () => { void enterStream(); });
   doc.getElementById('btn-exit-stream').addEventListener('click', () => { void exitStream(); });
@@ -565,17 +591,8 @@ export function mount(doc) {
       puppet.triggerJump();
       return;
     }
-    const gesture = {
-      1: 'wave',
-      2: 'heart',
-      3: 'peace',
-      4: 'clap',
-      5: 'point',
-      6: 'up',
-    }[event.key];
-    if (gesture) {
-      if (event.repeat) return;
-      actions.trigger(gesture);
+    if ((event.key === 's' || event.key === 'S') && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      setShowcase(!settings.showcase);
     }
   });
 
@@ -584,7 +601,7 @@ export function mount(doc) {
       rig.onPointerMove(event);
       return;
     }
-    if (tracker.isRunning()) return;
+    if (tracker.isRunning() || settings.showcase) return;
     placeDemo(event);
     if (!dragging) demo.down = event.buttons > 0;
   });
@@ -597,7 +614,7 @@ export function mount(doc) {
       }
       return;
     }
-    if (tracker.isRunning() || event.button !== 0 || isControl(event)) return;
+    if (tracker.isRunning() || settings.showcase || event.button !== 0 || isControl(event)) return;
     dragging = true;
     demo.down = true;
     placeDemo(event);
@@ -632,16 +649,23 @@ export function mount(doc) {
   bindSliders();
   syncControls();
   syncCameraButtons();
-  setStatus(MSG.loading);
+  if (settings.showcase) startScreen.hidden = true;
+  setStatus(settings.showcase ? 'Modo showcase' : MSG.loading);
   tracker.ensureModels()
     .then(() => {
+      if (settings.showcase) {
+        startScreen.hidden = true;
+        setStatus('Modo showcase');
+        return;
+      }
       const current = statusEl.textContent;
       if (!tracker.isRunning() && (current === MSG.loading || current === 'Iniciando…')) {
         setStatus(MSG.ready);
       }
     })
     .catch(() => {
-      if (!tracker.isRunning()) setStatus(MSG.modelsFail);
+      if (settings.showcase) setStatus('Modo showcase');
+      else if (!tracker.isRunning()) setStatus(MSG.modelsFail);
     });
 
   const chars = createCharPanel(doc, {

@@ -963,6 +963,7 @@ export function createPuppet(canvas) {
     edgeAlpha: 0,
     grain: null,
     jumpT: null,
+    jumpAmt: 1,
     prevJaw: 0,
     prevPitch: 0,
     prevWrist: 0,
@@ -1257,8 +1258,9 @@ export function createPuppet(canvas) {
       if (state.jumpT > 0.8) state.jumpT = null;
       else {
         const pose = jumpPose(state.jumpT);
-        jumpY = pose.y;
-        jumpSy = pose.sy;
+        const amt = clamp(finite(state.jumpAmt, 1), 0, 1);
+        jumpY = pose.y * amt;
+        jumpSy = 1 + (pose.sy - 1) * amt;
       }
     }
 
@@ -1969,8 +1971,9 @@ export function createPuppet(canvas) {
     update,
     draw,
     resize,
-    triggerJump() {
+    triggerJump(amount) {
       state.jumpT = 0;
+      state.jumpAmt = amount == null ? 1 : clamp(finite(amount, 1), 0, 1);
     },
     installOverrides,
     hitTest,
