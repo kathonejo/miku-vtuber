@@ -1,3 +1,4 @@
+import { rememberCameraDevice } from './camwindow.js';
 import {
   FilesetResolver,
   FaceLandmarker,
@@ -596,7 +597,9 @@ export function createTracker(video, onStatus) {
     let lastErr = null;
     for (const constraints of attempts) {
       try {
-        return await navigator.mediaDevices.getUserMedia(constraints);
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        rememberCameraDevice(stream);
+        return stream;
       } catch (err) {
         lastErr = err;
         if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError' || err?.name === 'SecurityError') {

@@ -220,3 +220,13 @@ Requiere Python 3, `psd-tools`, Pillow, numpy y opencv-python.
 ## Aviso
 
 El nombre PaRappa se usa solo para describir el estilo de animación en papel. Esta aplicación no está afiliada con ese juego ni con sus titulares.
+
+## Cámara en ventana (para OBS)
+
+El botón **Cámara en ventana** (barra superior) abre una ventana aparte que muestra **solo tu cámara real**, a pantalla completa, sin botones ni cursor, con la misma corrección de **Rotar cámara / Voltear** y el **Espejo** de la vista previa.
+
+1. Pulsa **Activar cámara** en la ventana principal (si tu cámara está montada al revés, elige **180°** en Personalizar → Cámara).
+2. Pulsa **Cámara en ventana**: se abre «Bunny VTuber · Cámara» (1280×720; puedes cambiarle el tamaño). Si el navegador bloquea la ventana emergente, permítela para este sitio.
+3. En OBS: **Fuentes → + → Captura de ventana** y elige la ventana «Bunny VTuber · Cámara».
+
+La ventana usa el mismo vídeo de la ventana principal, así que la cámara se abre una sola vez y el seguimiento del avatar sigue funcionando. Si la abres sola (https://miku-vtuber.vercel.app/?camwin=1) o cierras la principal, pide la cámara ella misma (la misma que usaste la última vez).

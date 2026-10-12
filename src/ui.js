@@ -476,6 +476,13 @@ export function mount(doc) {
     syncCameraButtons();
     setStatus(settings.showcase ? 'Modo showcase' : MSG.stopped);
   });
+  let camWin = null;
+  doc.getElementById('btn-camwin')?.addEventListener('click', () => {
+    if (camWin && !camWin.closed) { camWin.focus(); return; }
+    camWin = window.open('/?camwin=1', 'bunny-camara', 'popup=yes,width=1280,height=720');
+    if (!camWin) { toast('El navegador bloqueó la ventana emergente: permítela para este sitio'); return; }
+    toast('OBS: añade «Captura de ventana» y elige «Bunny VTuber · Cámara»');
+  });
   doc.getElementById('btn-preview').addEventListener('click', () => {
     settings.showPreview = !settings.showPreview;
     persist();

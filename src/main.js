@@ -1,5 +1,6 @@
 import './style.css';
 import { mount } from './ui.js';
+import { mountCameraWindow } from './camwindow.js';
 
 const proto = typeof CanvasRenderingContext2D === 'undefined' ? null : CanvasRenderingContext2D.prototype;
 if (proto && typeof proto.roundRect !== 'function') {
@@ -14,4 +15,6 @@ if (proto && typeof proto.roundRect !== 'function') {
   };
 }
 
-mount(document);
+const params = new URLSearchParams(location.search);
+if (params.get('camwin') === '1' || location.pathname === '/camara') mountCameraWindow(document);
+else mount(document);
