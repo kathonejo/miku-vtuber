@@ -13,6 +13,7 @@ import {
   strandTarget,
 } from './rigparams.js';
 import { isChroma, styleById } from './settings.js';
+import { createEyeGate, createMouthGate, normalizeSwap } from './swapface.js';
 
 const MAX_ROLL = (10 * Math.PI) / 180;
 const MAX_LEAN = (4 * Math.PI) / 180;
@@ -117,6 +118,8 @@ function emptyManifest() {
       headTop: { x: 294.33, y: 200.33 },
     },
     headMotion: 1,
+    id: null,
+    swap: null,
     bounds: { x0: 69.33, y0: 25, x1: 530.33, y1: 571 },
     byId: {},
     eyeSlot: { eye_l: null, eye_r: null },
@@ -144,6 +147,9 @@ function normalizeManifest(json) {
   m.pxPerUnit = finite(json.pxPerUnit, 2);
   // 1 = giro de cabeza normal; menos para dibujos planos (una sola lámina de cara)
   m.headMotion = clamp(finite(json.headMotion, 1), 0, 1);
+  m.id = typeof json.id === 'string' ? json.id : null;
+  // personajes por recortes: boca y ojos cambian de dibujo de golpe (sin fundido)
+  m.swap = json.swap ? normalizeSwap(json.swap) : null;
   const p = json.pivots || {};
   m.pivots.neck = xy(p.neck, m.pivots.neck);
   m.pivots.feet = xy(p.feet, m.pivots.feet);
@@ -1101,6 +1107,39 @@ export function createPuppet(canvas) {
     initSprings();
   }
 
+  const swapMouth = createMouthGate(() => state.manifest?.swap?.mouth || normalizeSwap({}).mouth);
+  const swapEyes = createEyeGate(() => state.manifest?.swap?.eyes || normalizeSwap({}).eyes);
+
+  /** Cambio duro de recortes: boca abierta/cerrada y ojos abiertos/cerrados. */
+  function applySwapFace(dt, targets, settings, face, blinkL, blinkR) {
+    const cfg = state.manifest.swap;
+    const live = Number(targets?.jawLive);
+    const signal = face && Number.isFinite(live) ? live : num(targets, 'jaw');
+    const open = swapMouth.step(signal, dt);
+    const want = open ? cfg.mouth.openId : cfg.mouth.closedId;
+    const id = state.manifest.mouths?.[want] ? want : state.mouthId;
+    state.mouthId = id;
+    state.mouthPrev = id;
+    state.mouthFade = 1;
+    state.pending = null;
+    state.pendingN = 0;
+
+    swapEyes.bind(state.manifest.id || 'personaje');
+    const gate = swapEyes.step(targets, {
+      independentWink: settings?.independentWink === true,
+      blinkAmt: settings?.sensitivity?.blink,
+    }, dt);
+    for (const side of ['eye_l', 'eye_r']) {
+      const slot = state.eye[side];
+      let next;
+      if (gate) next = (side === 'eye_l' ? gate.closedL : gate.closedR) ? 'closed' : 'open';
+      else next = stepEyeOpen(slot.id, side === 'eye_l' ? blinkL : blinkR);
+      slot.id = next;
+      slot.prev = next;
+      slot.fade = 1;
+    }
+  }
+
   function update(dtIn, targets, settings) {
     let dt = finite(dtIn, 0);
     if (dt < 0) dt = 0;
@@ -1245,7 +1284,9 @@ export function createPuppet(canvas) {
     }
     state.mouthFade = Math.min(1, state.mouthFade + dt / MOUTH_FADE);
 
-    for (const side of ['eye_l', 'eye_r']) {
+    if (state.manifest?.swap) {
+      applySwapFace(dt, targets, settings, face, blinkL, blinkR);
+    } else for (const side of ['eye_l', 'eye_r']) {
       const slot = state.eye[side];
       const blink = side === 'eye_l' ? blinkL : blinkR;
       const next = stepEyeOpen(slot.id, blink);
@@ -2023,6 +2064,17 @@ export function createPuppet(canvas) {
     },
     getStore() {
       return state.rigStore;
+    },
+    /** Estado visible de boca y ojos (pruebas y depuración). */
+    faceState() {
+      return {
+        mouth: state.mouthId,
+        eyeL: state.eye.eye_l.id,
+        eyeR: state.eye.eye_r.id,
+        fadeL: state.eye.eye_l.fade,
+        mouthFade: state.mouthFade,
+        cal: state.manifest?.swap ? { ...swapEyes.state } : null,
+      };
     },
   };
 }

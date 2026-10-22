@@ -48,7 +48,19 @@ function coerceDebug(obj) {
     wristUp: n('wristUp'),
     heartRot: 0,
     shoulderTilt: 0,
+    // opcionales: simulan los valores crudos de la cámara (personajes por recortes)
+    ...opt(obj, ['jawLive', 'blinkRawL', 'blinkRawR', 'blinkOpenL', 'blinkOpenR', 'calibEpoch']),
+    ...(obj?.calibReady === true ? { calibReady: true } : {}),
   };
+}
+
+function opt(obj, keys) {
+  const out = {};
+  for (const k of keys) {
+    const v = Number(obj?.[k]);
+    if (obj?.[k] != null && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
 }
 
 export function mount(doc) {
@@ -83,6 +95,7 @@ export function mount(doc) {
   let psdMapping = null;
   const api = {
     setDebugTargets,
+    faceState: () => puppet.faceState(),
     ready: puppet.ready,
     async importPsd(arrayBuffer, filename) {
       psdMapping = await importPsd(arrayBuffer, filename);

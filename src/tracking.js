@@ -391,6 +391,10 @@ export function createTracker(video, onStatus) {
   let orientKey = null;
   let currentOrient = { rotate: 0, flipH: false, flipV: false };
 
+  // Para personajes por recortes: cuántas veces se pulsó «Calibrar» y si ya
+  // hay una medida de cara relajada desde que arrancó (o se reorientó) la cámara.
+  let calibEpoch = 0;
+  let calibReady = false;
   const calib = {
     collecting: false,
     startedAt: 0,
@@ -516,6 +520,7 @@ export function createTracker(video, onStatus) {
     calib.collecting = false;
     calib.samples = [];
     calibArmed = running;
+    calibReady = false;
   }
 
   function beginCalib(now) {
@@ -538,6 +543,7 @@ export function createTracker(video, onStatus) {
     calib.base = next;
     openL = next.blinkL;
     openR = next.blinkR;
+    calibReady = true;
   }
 
   function ensureModels() {
@@ -873,6 +879,14 @@ export function createTracker(video, onStatus) {
       wristUp: clamp(wristUpSm, 0, 1),
       heartRot: clamp(heartRotSm, -0.4, 0.4),
       shoulderTilt: clamp(shoulderSm, -SHOULDER_LIMIT, SHOULDER_LIMIT),
+      // crudos, para personajes que cambian de recorte (no los usa la conejita oficial)
+      jawLive: faceTracked ? clamp(jawOpen * mouthAmt, 0, 1.5) : 0,
+      blinkRawL: blinkRawL,
+      blinkRawR: blinkRawR,
+      blinkOpenL: openL,
+      blinkOpenR: openR,
+      calibReady,
+      calibEpoch,
     };
     return output;
   }
@@ -979,6 +993,7 @@ export function createTracker(video, onStatus) {
 
   function calibrate() {
     if (!running) return false;
+    calibEpoch += 1;
     calibArmed = false;
     beginCalib(performance.now() / 1000);
     return true;

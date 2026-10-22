@@ -6,7 +6,22 @@
  ],
  "pxPerUnit": 1.0403,
  "source": "tools/azul/frame_*.png (4 expresiones)",
+ "id": "azul",
  "headMotion": 0.55,
+ "swap": {
+  "mouth": {
+   "on": 0.07,
+   "off": 0.04,
+   "holdMs": 70,
+   "drop": 0.6,
+   "openId": "a",
+   "closedId": "neutral"
+  },
+  "eyes": {
+   "close": 0.55,
+   "open": 0.35
+  }
+ },
  "parts": [
   {
    "file": "/azul/body.png",
@@ -176,68 +191,68 @@
  "mouths": {
   "neutral": {
    "file": "/azul/mouth_closed.png",
-   "x": 280.29,
-   "y": 296.08,
-   "w": 52.87,
-   "h": 33.64,
+   "x": 270.68,
+   "y": 274.93,
+   "w": 74.02,
+   "h": 56.71,
    "px": [
-    55,
-    35
+    77,
+    59
    ],
    "patch": true
   },
   "small": {
    "file": "/azul/mouth_open.png",
-   "x": 280.29,
-   "y": 296.08,
-   "w": 52.87,
-   "h": 33.64,
+   "x": 270.68,
+   "y": 274.93,
+   "w": 74.02,
+   "h": 56.71,
    "px": [
-    55,
-    35
+    77,
+    59
    ],
    "patch": true
   },
   "a": {
    "file": "/azul/mouth_open.png",
-   "x": 280.29,
-   "y": 296.08,
-   "w": 52.87,
-   "h": 33.64,
+   "x": 270.68,
+   "y": 274.93,
+   "w": 74.02,
+   "h": 56.71,
    "px": [
-    55,
-    35
+    77,
+    59
    ],
    "patch": true
   },
   "o": {
    "file": "/azul/mouth_open.png",
-   "x": 280.29,
-   "y": 296.08,
-   "w": 52.87,
-   "h": 33.64,
+   "x": 270.68,
+   "y": 274.93,
+   "w": 74.02,
+   "h": 56.71,
    "px": [
-    55,
-    35
+    77,
+    59
    ],
    "patch": true
   },
   "smile": {
    "file": "/azul/mouth_open.png",
-   "x": 280.29,
-   "y": 296.08,
-   "w": 52.87,
-   "h": 33.64,
+   "x": 270.68,
+   "y": 274.93,
+   "w": 74.02,
+   "h": 56.71,
    "px": [
-    55,
-    35
+    77,
+    59
    ],
    "patch": true
   }
  },
  "mouthCenter": [
-  307.32,
-  311.62
+  305.24,
+  304.46
  ],
  "extras": {},
  "arms": {

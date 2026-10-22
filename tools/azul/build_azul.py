@@ -219,7 +219,34 @@ def same_area(src, m, name):
 
 eye_l_open = same_area(D, ml, 'eye_l_open.png')
 eye_r_open = same_area(D, mr, 'eye_r_open.png')
-mouth_open, mm = patch(B, D, MOUTH_BOX, 'mouth_open.png')
+# Mouth: one region that holds the whole mouth drawing of BOTH frames (the
+# closed "w" and nose lines from D, the open mouth and its lips from B), so the
+# swap is a straight cut-out of each illustration with its own cheek lines.
+def mouth_region():
+    x0, y0, x1, y1 = 150, 255, 262, 335
+    win = np.zeros((H, W), bool)
+    win[y0:y1, x0:x1] = True
+    def ink(X):
+        l = (X[..., :3].astype(float) * [0.3, 0.59, 0.11]).sum(2)
+        return (l < 110) & (X[..., 3] > 100)
+    keep = np.zeros((H, W), bool)
+    for X in (D, B):
+        lab_, _ = ndi.label(ink(X) & win, structure=np.ones((3, 3)))
+        for i, sl in enumerate(ndi.find_objects(lab_)):
+            if sl is None:
+                continue
+            ys, xs = sl
+            # strokes fully inside the window (mouth, nose); glasses/face outline run past it
+            if ys.start > y0 and ys.stop < y1 and xs.start > x0 and xs.stop < x1:
+                keep |= lab_ == i + 1
+    diff = (np.abs(B[..., :3].astype(int) - D[..., :3].astype(int)).max(2) > 40) & win
+    u = keep | ndi.binary_opening(diff, iterations=1)
+    r = grow(u, 5)
+    r = ndi.binary_fill_holes(r)
+    return r & ~grow(front_m, 1)
+
+mm = mouth_region()
+mouth_open = same_area(B, mm, 'mouth_open.png')
 mouth_closed = same_area(D, mm, 'mouth_closed.png')
 for e in (eye_l_closed, eye_r_closed, eye_l_open, eye_r_open, mouth_open, mouth_closed):
     e['patch'] = True
@@ -261,7 +288,13 @@ manifest = {
     'rigSize': [RIG, RIG],
     'pxPerUnit': round(1 / SCALE, 4),
     'source': 'tools/azul/frame_*.png (4 expresiones)',
+    'id': 'azul',
     'headMotion': 0.55,
+    # boca y ojos: recortes exactos de los dibujos, se cambian de golpe
+    'swap': {
+        'mouth': {'on': 0.07, 'off': 0.04, 'holdMs': 70, 'drop': 0.6, 'openId': 'a', 'closedId': 'neutral'},
+        'eyes': {'close': 0.55, 'open': 0.35},
+    },
     'parts': parts,
     'mouths': {
         'neutral': mouth_closed,

@@ -90,9 +90,14 @@ Si exportas y sustituyes `public/bunny/rig.json`, los ajustes quedan para todo e
 Además de la conejita oficial hay una segunda personaje incluida: la **Conejita azul** (pelo celeste, anteojos rojos, ranita con estrella, estrella en la mano y bufanda arcoíris).
 
 - Para usarla: **Personajes → Conejita azul → Usar**. Queda recordada al recargar.
-- Parpadea (también guiño independiente), habla con la boca o el micrófono, sigue la inclinación y el giro de la cabeza con un rebote suave, y mueve las orejas y la colita del pelo.
+- Parpadea (también guiño independiente), habla siguiendo tu boca en la cámara, sigue la inclinación y el giro de la cabeza con un rebote suave, y mueve las orejas y la colita del pelo.
 - Las capas salen de cuatro dibujos de la misma pose (ojos abiertos/cerrados × boca abierta/cerrada) que están en `tools/azul/`. Para regenerarlas: `python3 tools/azul/build_azul.py` (necesita Pillow, numpy, OpenCV y SciPy). Escribe `public/azul/` (capas, `rig.json` y miniatura).
 - Como la cara es un solo dibujo plano, el giro de cabeza es más suave que en la conejita oficial (`headMotion` 0.55 en `rig.json`), la boca solo tiene abierta/cerrada y los ojos no siguen la mirada.
+- **Boca y ojos por recortes.** La boca cerrada es un recorte exacto del dibujo D y la abierta, del dibujo B (la misma zona, con nariz y mejillas alrededor, para que encajen sin costura). Los ojos abiertos salen de D y los cerrados de A. No se deforma ni se funde nada: se cambia de un recorte al otro de golpe (`swap` en `rig.json`, lógica en `src/swapface.js`).
+  - Boca: se abre cuando la apertura de mandíbula de la cámara pasa un umbral bajo, se sostiene unos 70 ms y se vuelve a cerrar en cuanto baja entre sílabas (aunque no llegue a cero), así aletea al hablar.
+  - Ojos: usan la calibración de la cámara. **Calibrar** (y la calibración automática al activar la cámara) mide cada ojo abierto y relajado; el valor de ojo cerrado de cada ojo se aprende de tus parpadeos. Los umbrales son relativos a esa medida, con histéresis. Se guarda por personaje en `localStorage` (`bunny-vtuber-eyecal-v1:azul`).
+  - Si los ojos no responden bien: mirá a la cámara con la cara relajada, pulsá **Calibrar** y después parpadeá normal unas cuantas veces.
+  - Prueba sin cámara de la lógica: `node tools/azul/swapface_check.mjs`.
 - Sus ajustes del editor de rigging se guardan aparte de los de la conejita oficial.
 
 ## Cargar tu propio personaje (PSD)
