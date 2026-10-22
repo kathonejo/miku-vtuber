@@ -110,11 +110,11 @@ export function createEyePainter() {
     const { eye, style } = resolveStyle(opt.manifest, opt.side, opt.styleId);
     const getImage = opt.getImage || (() => null);
     if (closed) {
-      paintSprite(ctx, getImage, eye?.closed, opt.gazeX, opt.gazeY, true);
+      paintSprite(ctx, getImage, eye?.closed, opt.gazeX, opt.gazeY, !eye?.closed?.patch);
       return;
     }
     if (style?.white && paintLayers(ctx, scratch, style, opt.gazeX || 0, opt.gazeY || 0, getImage)) return;
-    paintSprite(ctx, getImage, style?.full, opt.gazeX, opt.gazeY, true);
+    paintSprite(ctx, getImage, style?.full, opt.gazeX, opt.gazeY, !style?.full?.patch);
   }
   return {
     paint(ctx, opt) {

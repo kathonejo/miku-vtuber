@@ -36,6 +36,13 @@ function bunnyThumb() {
   return canvas.toDataURL('image/png');
 }
 const BUNNY_THUMB = bunnyThumb();
+const ASSET_BASE = import.meta.env?.BASE_URL || './';
+/** Personajes que vienen con la app (carpeta public/<id>/rig.json). */
+const BUILTINS = [
+  { id: BUNNY_ID, name: BUNNY_NAME, thumbnail: BUNNY_THUMB },
+  { id: 'azul', name: 'Conejita azul', thumbnail: `${ASSET_BASE}azul/thumb.png` },
+];
+const isBuiltin = (id) => BUILTINS.some((item) => item.id === id);
 function busy(doc, on, text) {
   let el = doc.getElementById('psd-busy');
   if (!el && on) {
@@ -74,7 +81,7 @@ export function createCharPanel(doc, hooks) {
   let pending = null;
   let timer = 0;
   onRigSave((flat, id) => {
-    if (!id || id === BUNNY_ID) return;
+    if (!id || isBuiltin(id)) return;
     pending = { flat, id };
     clearTimeout(timer);
     timer = setTimeout(() => { void flushRig(); }, 280);
@@ -101,7 +108,7 @@ export function createCharPanel(doc, hooks) {
   }
   async function render() {
     listEl.replaceChildren();
-    listEl.appendChild(row({ id: BUNNY_ID, name: BUNNY_NAME, thumbnail: BUNNY_THUMB }, true));
+    for (const item of BUILTINS) listEl.appendChild(row(item, true));
     try {
       for (const item of await listCharacters()) listEl.appendChild(row(item, false));
     } catch (err) {
@@ -120,7 +127,7 @@ export function createCharPanel(doc, hooks) {
     name.textContent = item.name;
     const actions = doc.createElement('div');
     actions.append(
-      btn('Usar', () => { void (builtin ? useBunny() : useSaved(item.id)); }),
+      btn('Usar', () => { void (builtin ? useBuiltin(item.id) : useSaved(item.id)); }),
       btn('Renombrar', () => rename(item, name, builtin)),
     );
     if (!builtin) actions.append(btn('Borrar', (event) => { void remove(item, event.currentTarget); }));
@@ -144,6 +151,22 @@ export function createCharPanel(doc, hooks) {
       if (!root.hidden) await render();
     } catch (err) {
       toast(err.message || 'No pude volver a la conejita');
+    }
+  }
+  async function useBuiltin(id, quiet) {
+    if (id === BUNNY_ID || !hooks.useBuiltin) return useBunny();
+    const item = BUILTINS.find((entry) => entry.id === id);
+    setRigCharacter(id);
+    try {
+      await hooks.useBuiltin(id);
+      rememberCharacter(id);
+      hooks.onUsed?.();
+      if (!quiet) toast(item?.name || id);
+      if (!root.hidden) await render();
+    } catch (err) {
+      console.warn(err);
+      toast(err.message || 'No pude cargar ese personaje');
+      await useBunny();
     }
   }
   async function useSaved(id, quiet) {
@@ -203,7 +226,7 @@ export function createCharPanel(doc, hooks) {
     }
   }
   function rename(item, nameEl, builtin) {
-    if (builtin) { toast('La conejita oficial no se renombra'); return; }
+    if (builtin) { toast('Los personajes incluidos no se renombran'); return; }
     const input = doc.createElement('input');
     input.type = 'text';
     input.maxLength = 60;
@@ -276,7 +299,8 @@ export function createCharPanel(doc, hooks) {
       return;
     }
     try {
-      await useSaved(id, true);
+      if (isBuiltin(id)) await useBuiltin(id, true);
+      else await useSaved(id, true);
     } catch (err) {
       console.warn(err);
       rememberCharacter(BUNNY_ID);

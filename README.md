@@ -85,6 +85,16 @@ Elige una pieza en la lista o haz clic en el dibujo. Verás su caja en trazo tea
 
 Si exportas y sustituyes `public/bunny/rig.json`, los ajustes quedan para todo el mundo. En ese navegador pulsa **Restablecer todo** después, para no sumar otra vez lo que ya iba en el archivo. Los retoques de la conejita oficial viven en `localStorage` (`bunny-vtuber-rig-v1`). Cada personaje cargado usa su propia clave (`bunny-vtuber-rig-v1:<id>`) y también guarda esos retoques en su ficha.
 
+## Personajes incluidos: Conejita azul
+
+Además de la conejita oficial hay una segunda personaje incluida: la **Conejita azul** (pelo celeste, anteojos rojos, ranita con estrella, estrella en la mano y bufanda arcoíris).
+
+- Para usarla: **Personajes → Conejita azul → Usar**. Queda recordada al recargar.
+- Parpadea (también guiño independiente), habla con la boca o el micrófono, sigue la inclinación y el giro de la cabeza con un rebote suave, y mueve las orejas y la colita del pelo.
+- Las capas salen de cuatro dibujos de la misma pose (ojos abiertos/cerrados × boca abierta/cerrada) que están en `tools/azul/`. Para regenerarlas: `python3 tools/azul/build_azul.py` (necesita Pillow, numpy, OpenCV y SciPy). Escribe `public/azul/` (capas, `rig.json` y miniatura).
+- Como la cara es un solo dibujo plano, el giro de cabeza es más suave que en la conejita oficial (`headMotion` 0.55 en `rig.json`), la boca solo tiene abierta/cerrada y los ojos no siguen la mirada.
+- Sus ajustes del editor de rigging se guardan aparte de los de la conejita oficial.
+
 ## Cargar tu propio personaje (PSD)
 
 El botón **Personajes** abre la biblioteca. **Conejita (oficial)** es el personaje incluido: se puede usar, no se puede borrar. El resto tiene **Usar**, **Renombrar** y **Borrar**.

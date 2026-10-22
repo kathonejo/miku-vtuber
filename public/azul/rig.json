@@ -1,0 +1,398 @@
+{
+ "name": "Conejita azul",
+ "rigSize": [
+  600,
+  600
+ ],
+ "pxPerUnit": 1.0403,
+ "source": "tools/azul/frame_*.png (4 expresiones)",
+ "headMotion": 0.55,
+ "parts": [
+  {
+   "file": "/azul/body.png",
+   "x": 106.3,
+   "y": 296.08,
+   "w": 329.71,
+   "h": 253.77,
+   "px": [
+    343,
+    264
+   ],
+   "id": "body",
+   "role": "static",
+   "parent": "body",
+   "pivot": [
+    303.36,
+    548.89
+   ]
+  },
+  {
+   "file": "/azul/ear_l.png",
+   "x": 197.62,
+   "y": 36.54,
+   "w": 91.32,
+   "h": 107.66,
+   "px": [
+    95,
+    112
+   ],
+   "id": "ear_l",
+   "role": "ear",
+   "parent": "head",
+   "pivot": [
+    250.49,
+    124.97
+   ],
+   "motion": {
+    "sway": 5,
+    "limit": 9,
+    "speed": 0.4
+   }
+  },
+  {
+   "file": "/azul/ear_r.png",
+   "x": 366.81,
+   "y": 50.95,
+   "w": 83.63,
+   "h": 107.66,
+   "px": [
+    87,
+    112
+   ],
+   "id": "ear_r",
+   "role": "ear",
+   "parent": "head",
+   "pivot": [
+    406.22,
+    138.43
+   ],
+   "motion": {
+    "sway": 5,
+    "limit": 9,
+    "speed": 0.36,
+    "phase": 0.25
+   }
+  },
+  {
+   "file": "/azul/tail_r.png",
+   "x": 413.91,
+   "y": 303.77,
+   "w": 57.68,
+   "h": 98.05,
+   "px": [
+    60,
+    102
+   ],
+   "id": "tail_r",
+   "role": "hair",
+   "parent": "head",
+   "pivot": [
+    435.06,
+    313.38
+   ],
+   "motion": {
+    "sway": 3,
+    "limit": 6
+   }
+  },
+  {
+   "file": "/azul/head.png",
+   "x": 150.52,
+   "y": 93.25,
+   "w": 316.26,
+   "h": 264.35,
+   "px": [
+    329,
+    275
+   ],
+   "id": "head",
+   "role": "static",
+   "parent": "head",
+   "pivot": [
+    312.02,
+    334.53
+   ],
+   "parallax": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "eye_l",
+   "role": "eye",
+   "parent": "head",
+   "side": "l",
+   "pivot": [
+    247.52,
+    262.81
+   ],
+   "parallax": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "eye_r",
+   "role": "eye",
+   "parent": "head",
+   "side": "r",
+   "pivot": [
+    340.62,
+    252.57
+   ],
+   "parallax": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "mouth",
+   "role": "mouth",
+   "parent": "head",
+   "parallax": [
+    0,
+    0
+   ]
+  },
+  {
+   "file": "/azul/front.png",
+   "x": 199.55,
+   "y": 311.46,
+   "w": 165.34,
+   "h": 137.46,
+   "px": [
+    172,
+    143
+   ],
+   "id": "front",
+   "role": "static",
+   "parent": "body",
+   "pivot": [
+    303.36,
+    548.89
+   ]
+  }
+ ],
+ "mouths": {
+  "neutral": {
+   "file": "/azul/mouth_closed.png",
+   "x": 280.29,
+   "y": 296.08,
+   "w": 52.87,
+   "h": 33.64,
+   "px": [
+    55,
+    35
+   ],
+   "patch": true
+  },
+  "small": {
+   "file": "/azul/mouth_open.png",
+   "x": 280.29,
+   "y": 296.08,
+   "w": 52.87,
+   "h": 33.64,
+   "px": [
+    55,
+    35
+   ],
+   "patch": true
+  },
+  "a": {
+   "file": "/azul/mouth_open.png",
+   "x": 280.29,
+   "y": 296.08,
+   "w": 52.87,
+   "h": 33.64,
+   "px": [
+    55,
+    35
+   ],
+   "patch": true
+  },
+  "o": {
+   "file": "/azul/mouth_open.png",
+   "x": 280.29,
+   "y": 296.08,
+   "w": 52.87,
+   "h": 33.64,
+   "px": [
+    55,
+    35
+   ],
+   "patch": true
+  },
+  "smile": {
+   "file": "/azul/mouth_open.png",
+   "x": 280.29,
+   "y": 296.08,
+   "w": 52.87,
+   "h": 33.64,
+   "px": [
+    55,
+    35
+   ],
+   "patch": true
+  }
+ },
+ "mouthCenter": [
+  307.32,
+  311.62
+ ],
+ "extras": {},
+ "arms": {
+  "parts": {},
+  "shoulders": {
+   "l": [
+    250.49,
+    361.44
+   ],
+   "r": [
+    365.85,
+    361.44
+   ]
+  },
+  "hasCustom": false
+ },
+ "eyes": {
+  "l": {
+   "center": [
+    247.52,
+    262.81
+   ],
+   "styles": {
+    "A": {
+     "full": {
+      "file": "/azul/eye_l_open.png",
+      "x": 217.81,
+      "y": 232.63,
+      "w": 53.83,
+      "h": 58.64,
+      "px": [
+       56,
+       61
+      ],
+      "patch": true
+     }
+    },
+    "B": {
+     "full": {
+      "file": "/azul/eye_l_open.png",
+      "x": 217.81,
+      "y": 232.63,
+      "w": 53.83,
+      "h": 58.64,
+      "px": [
+       56,
+       61
+      ],
+      "patch": true
+     }
+    }
+   },
+   "closed": {
+    "file": "/azul/eye_l_closed.png",
+    "x": 217.81,
+    "y": 232.63,
+    "w": 53.83,
+    "h": 58.64,
+    "px": [
+     56,
+     61
+    ],
+    "patch": true
+   }
+  },
+  "r": {
+   "center": [
+    340.62,
+    252.57
+   ],
+   "styles": {
+    "A": {
+     "full": {
+      "file": "/azul/eye_r_open.png",
+      "x": 315.86,
+      "y": 222.06,
+      "w": 58.64,
+      "h": 59.6,
+      "px": [
+       61,
+       62
+      ],
+      "patch": true
+     }
+    },
+    "B": {
+     "full": {
+      "file": "/azul/eye_r_open.png",
+      "x": 315.86,
+      "y": 222.06,
+      "w": 58.64,
+      "h": 59.6,
+      "px": [
+       61,
+       62
+      ],
+      "patch": true
+     }
+    }
+   },
+   "closed": {
+    "file": "/azul/eye_r_closed.png",
+    "x": 315.86,
+    "y": 222.06,
+    "w": 58.64,
+    "h": 59.6,
+    "px": [
+     61,
+     62
+    ],
+    "patch": true
+   }
+  }
+ },
+ "eyeStyles": [
+  "A",
+  "B"
+ ],
+ "pivots": {
+  "neck": [
+   312.02,
+   334.53
+  ],
+  "feet": [
+   303.36,
+   548.89
+  ],
+  "eye_l": [
+   247.52,
+   262.81
+  ],
+  "eye_r": [
+   340.62,
+   252.57
+  ],
+  "headTop": [
+   308.17,
+   36.54
+  ]
+ },
+ "bounds": {
+  "x0": 106.3,
+  "y0": 25.0,
+  "x1": 493.7,
+  "y1": 571.0
+ },
+ "drawOrder": [
+  "body",
+  "ear_l",
+  "ear_r",
+  "tail_r",
+  "head",
+  "eye_l",
+  "eye_r",
+  "mouth",
+  "front"
+ ]
+}

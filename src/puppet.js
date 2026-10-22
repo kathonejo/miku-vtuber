@@ -62,6 +62,8 @@ const NIGHT_STARS = Array.from({ length: 42 }, (_, i) => ({
 
 function assetUrl(file) {
   const base = import.meta.env?.BASE_URL || './';
+  // "/azul/head.png" = ruta desde la raíz pública (otros personajes incluidos)
+  if (typeof file === 'string' && file.startsWith('/')) return `${base}${file.slice(1)}`;
   return `${base}bunny/${file}`;
 }
 
@@ -114,6 +116,7 @@ function emptyManifest() {
       eye_r: { x: 372.33, y: 274.33 },
       headTop: { x: 294.33, y: 200.33 },
     },
+    headMotion: 1,
     bounds: { x0: 69.33, y0: 25, x1: 530.33, y1: 571 },
     byId: {},
     eyeSlot: { eye_l: null, eye_r: null },
@@ -139,6 +142,8 @@ function normalizeManifest(json) {
     m.rigSize = [finite(json.rigSize[0], 600), finite(json.rigSize[1], 600)];
   }
   m.pxPerUnit = finite(json.pxPerUnit, 2);
+  // 1 = giro de cabeza normal; menos para dibujos planos (una sola lámina de cara)
+  m.headMotion = clamp(finite(json.headMotion, 1), 0, 1);
   const p = json.pivots || {};
   m.pivots.neck = xy(p.neck, m.pivots.neck);
   m.pivots.feet = xy(p.feet, m.pivots.feet);
@@ -204,6 +209,7 @@ function collectFiles(manifest) {
 
 function parallaxOf(part) {
   if (!part) return [0, 0];
+  if (Array.isArray(part.parallax) && part.parallax.length >= 2) return [+part.parallax[0] || 0, +part.parallax[1] || 0];
   if (part.role === 'eye' || (part.id && String(part.id).startsWith('eye_'))) return [4, 3];
   if (part.id && PARALLAX[part.id]) return PARALLAX[part.id];
   if (part.role === 'hair') return [1, 0];
@@ -1319,16 +1325,11 @@ export function createPuppet(canvas) {
 
   function applyHead() {
     const { neck } = state.manifest.pivots;
-    const view = state.view;
     const lift = headLift();
     if (lift) ctx.translate(0, -lift);
-    const sx = clamp(1 - 0.14 * Math.abs(view.yaw), 0.86, 1);
-    const sy = clamp(1 - 0.06 * Math.abs(view.pitch), 0.94, 1);
-    const skew = clamp(view.yaw * 0.06, -0.06, 0.06);
-    const offX = clamp(view.yaw * 9, -9, 9);
-    const offY = clamp(view.pitch * 9, -9, 9);
+    const { sx, sy, skew, offX, offY, roll } = headScale();
     ctx.translate(neck.x + offX, neck.y + offY);
-    ctx.rotate(view.rollRad);
+    ctx.rotate(roll);
     ctx.transform(sx, skew, 0, sy, 0, 0);
     ctx.translate(-neck.x, -neck.y);
   }
@@ -1385,7 +1386,7 @@ export function createPuppet(canvas) {
     const closed = slot.id === 'closed';
     const graphic = eyeGraphic(side, closed);
     const layered = !closed && Boolean(resolveStyle(state.manifest, side, state.eyeStyle).style?.white);
-    if (graphic && !layered) {
+    if (graphic && !layered && !graphic.patch) {
       ctx.save();
       ctx.translate(view.gazeX * 3, view.gazeY * 2);
       if (state.useShadow) paintShadow(graphic);
@@ -1488,12 +1489,14 @@ export function createPuppet(canvas) {
 
   function headScale() {
     const view = state.view;
+    const k = clamp(finite(state.manifest?.headMotion, 1), 0, 1);
     return {
-      sx: clamp(1 - 0.14 * Math.abs(view.yaw), 0.86, 1),
-      sy: clamp(1 - 0.06 * Math.abs(view.pitch), 0.94, 1),
-      skew: clamp(view.yaw * 0.06, -0.06, 0.06),
-      offX: clamp(view.yaw * 9, -9, 9),
-      offY: clamp(view.pitch * 9, -9, 9),
+      sx: 1 - (1 - clamp(1 - 0.14 * Math.abs(view.yaw), 0.86, 1)) * k,
+      sy: 1 - (1 - clamp(1 - 0.06 * Math.abs(view.pitch), 0.94, 1)) * k,
+      skew: clamp(view.yaw * 0.06, -0.06, 0.06) * k,
+      offX: clamp(view.yaw * 9, -9, 9) * k,
+      offY: clamp(view.pitch * 9, -9, 9) * k,
+      roll: view.rollRad * (0.5 + 0.5 * k),
     };
   }
 
@@ -1529,8 +1532,8 @@ export function createPuppet(canvas) {
     const lift = headLift();
     const x = p.x;
     const y = p.y + lift;
-    const co = Math.cos(view.rollRad);
-    const si = Math.sin(view.rollRad);
+    const co = Math.cos(h.roll);
+    const si = Math.sin(h.roll);
     const dx = x - neck.x - h.offX;
     const dy = y - neck.y - h.offY;
     const rx = co * dx + si * dy;
@@ -1648,14 +1651,18 @@ export function createPuppet(canvas) {
         wrapPart(part, () => {
           const center = m.mouthCenter;
           applyLocal({ ...part, id: 'mouth', role: 'mouth', pivot: [center.x, center.y] });
-          const sy = clamp(0.85 + 0.35 * clamp(view.jaw, 0, 1.2), 0.7, 1.35);
-          const sx = clamp(1 + 0.1 * clamp(view.smile, 0, 1.5), 0.85, 1.3);
-          ctx.translate(center.x, center.y);
-          ctx.scale(sx, sy);
-          ctx.translate(-center.x, -center.y);
           const cur = m.mouths[view.mouthId] || m.mouths.neutral;
-          if (useShadow && cur) paintShadow(cur);
-          if (useEdge && cur) paintEdge(cur, edgeOx, edgeAlpha);
+          // parche recortado del dibujo: va pegado a la cara, sin estirar ni borde de papel
+          const patch = Boolean(cur?.patch);
+          if (!patch) {
+            const sy = clamp(0.85 + 0.35 * clamp(view.jaw, 0, 1.2), 0.7, 1.35);
+            const sx = clamp(1 + 0.1 * clamp(view.smile, 0, 1.5), 0.85, 1.3);
+            ctx.translate(center.x, center.y);
+            ctx.scale(sx, sy);
+            ctx.translate(-center.x, -center.y);
+          }
+          if (useShadow && cur && !patch) paintShadow(cur);
+          if (useEdge && cur && !patch) paintEdge(cur, edgeOx, edgeAlpha);
           paintMouth();
         });
         continue;

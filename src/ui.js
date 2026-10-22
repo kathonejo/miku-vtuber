@@ -689,6 +689,13 @@ export function mount(doc) {
       if (!res.ok) throw new Error('No pude cargar la conejita');
       return puppet.loadManifest(await res.json(), { overrides: loadOverrides('bunny') });
     },
+    async useBuiltin(id) {
+      await puppet.ready;
+      const base = import.meta.env?.BASE_URL || './';
+      const res = await fetch(`${base}${id}/rig.json`);
+      if (!res.ok) throw new Error('No pude cargar ese personaje');
+      return puppet.loadManifest(await res.json(), { overrides: loadOverrides(id) });
+    },
     onUsed() {
       if (!rig.isOpen()) return;
       const first = puppet.getManifest()?.parts?.find((part) => part && part.role !== 'mouth' && part.id !== 'mouth');
