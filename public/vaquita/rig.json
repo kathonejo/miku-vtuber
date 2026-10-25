@@ -387,7 +387,17 @@
      }
     }
    },
-   "closed": null
+   "closed": null,
+   "closedLine": {
+    "color": "#fdfbf9",
+    "eyeLum": 0.643,
+    "bgLum": 0.008,
+    "eye": {
+     "dark": "#000002",
+     "light": "#fdfbf9"
+    },
+    "why": "fondo oscuro: color claro del ojo"
+   }
   },
   "r": {
    "center": [
@@ -422,7 +432,17 @@
      }
     }
    },
-   "closed": null
+   "closed": null,
+   "closedLine": {
+    "color": "#000002",
+    "eyeLum": 0.001,
+    "bgLum": 0.938,
+    "eye": {
+     "dark": "#000002",
+     "light": "#000002"
+    },
+    "why": "fondo claro: negro de su línea"
+   }
   }
  },
  "eyeStyles": [

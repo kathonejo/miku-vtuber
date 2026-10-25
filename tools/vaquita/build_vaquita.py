@@ -189,6 +189,59 @@ parts.append({'id': 'eye_r', 'role': 'eye', 'parent': 'head', 'side': 'r', 'pivo
 part('head_line', head_line, 'static', 'head', NECK, parallax=[0, 0], psdName=['cabeza'])
 
 comp = over(body, tail, *[im for _, im, _ in legs], neck, body_line, leg_p4, head_color, eye_l_img, eye_r_img, head_line)
+
+
+def lum(rgb):
+    return rgb[..., 0] * 0.2126 + rgb[..., 1] * 0.7152 + rgb[..., 2] * 0.0722
+
+
+def hexc(rgb):
+    return '#' + ''.join(f'{int(round(float(v) * 255)):02x}' for v in np.clip(rgb, 0, 1))
+
+
+def closed_line(eye, below, line):
+    """Color de la rayita del ojo cerrado: contrasta con lo que hay debajo del ojo.
+
+    Se mira el compuesto de las capas de abajo dentro del recuadro del ojo (pesado por
+    la silueta del ojo) y la luminancia media del propio ojo. Fondo claro -> el negro
+    de su línea; fondo oscuro -> el color claro del ojo (o blanco si no contrasta)."""
+    a = eye[..., 3]
+    ys, xs = np.where(a > 0.004)
+    sl = (slice(ys.min(), ys.max() + 1), slice(xs.min(), xs.max() + 1))
+    w = a[sl]
+    ea = np.maximum(w, 1e-4)[..., None]
+    erg = eye[sl][..., :3] / ea
+    ba = below[sl][..., 3:]
+    brg = below[sl][..., :3] + (1 - ba) * 1.0          # sin nada debajo: papel blanco
+    el = lum(erg)
+    bl = lum(brg)
+    eye_l = float((el * w).sum() / w.sum())
+    bg_l = float((bl * w).sum() / w.sum())
+    solid = w > 0.5
+    order = np.argsort(el[solid])
+    k = max(1, len(order) // 10)
+    dark_eye = erg[solid][order[:k]].mean(0)
+    light_eye = erg[solid][order[-k:]].mean(0)
+    la = line[..., 3] > 0.8
+    lrg = line[..., :3][la] / line[..., 3:][la]
+    lo = np.argsort(lum(lrg))
+    line_dark = lrg[lo[:max(1, len(lo) // 2)]].mean(0)
+    if bg_l >= 0.5:
+        pick, why = line_dark, 'fondo claro: negro de su línea'
+        if lum(pick) > bg_l - 0.4:
+            pick, why = np.zeros(3), 'fondo claro: negro'
+    else:
+        pick, why = light_eye, 'fondo oscuro: color claro del ojo'
+        if lum(pick) < bg_l + 0.4:
+            pick, why = np.ones(3), 'fondo oscuro: blanco'
+    return {'color': hexc(pick), 'eyeLum': round(eye_l, 3), 'bgLum': round(bg_l, 3),
+            'eye': {'dark': hexc(dark_eye), 'light': hexc(light_eye)}, 'why': why}
+
+
+below_l = over(body, tail, *[im for _, im, _ in legs], neck, body_line, leg_p4, head_color)
+below_r = over(below_l, eye_l_img)
+CLOSED = {'l': closed_line(eye_l_img, below_l, head_line), 'r': closed_line(eye_r_img, below_r, head_line)}
+print('ojo cerrado:', CLOSED)
 ref = psd.composite()
 ref = np.asarray(ref).astype(np.float32) / 255
 ref[..., :3] *= ref[..., 3:]
@@ -224,8 +277,8 @@ manifest = {
     'extras': {},
     'arms': {'parts': {}, 'shoulders': {'l': rig(500, 1500), 'r': rig(800, 1500)}, 'hasCustom': False},
     'eyes': {
-        'l': {'center': center(eye_l_img), 'styles': {'A': {'full': eye_l}, 'B': {'full': eye_l}}, 'closed': None},
-        'r': {'center': center(eye_r_img), 'styles': {'A': {'full': eye_r}, 'B': {'full': eye_r}}, 'closed': None},
+        'l': {'center': center(eye_l_img), 'styles': {'A': {'full': eye_l}, 'B': {'full': eye_l}}, 'closed': None, 'closedLine': CLOSED['l']},
+        'r': {'center': center(eye_r_img), 'styles': {'A': {'full': eye_r}, 'B': {'full': eye_r}}, 'closed': None, 'closedLine': CLOSED['r']},
     },
     'eyeStyles': ['A', 'B'],
     'pivots': {

@@ -4,6 +4,7 @@ import { clamp, finite, hash01, Spring1D } from './filters.js';
 import { paintCastShadow, paintGroundShadow, relativeLuminance, sampleAverage, shadowLook } from './castshadow.js';
 import { neckAnchorId, neckLiftAmount, paintNeck } from './neckdraw.js';
 import { resolveChain } from './rigchain.js';
+import { closedLineColor, eyeLineMode } from './eyeline.js';
 import {
   applyOverrides as applyRigData,
   fitStore as fitRigStore,
@@ -199,6 +200,9 @@ function normalizeManifest(json) {
     m.eyes = { l: json.eyes.l || null, r: json.eyes.r || null };
   }
   if (Array.isArray(json.eyeStyles) && json.eyeStyles.length) m.eyeStyles = json.eyeStyles.slice();
+  // color de la rayita del ojo cerrado (aplastado): 'auto' = el detectado al armar
+  const line = json.eyeLine && typeof json.eyeLine === 'object' ? json.eyeLine : {};
+  m.eyeLine = { l: eyeLineMode(line.l), r: eyeLineMode(line.r) };
   if (json.arms && typeof json.arms === 'object') {
     const sh = json.arms.shoulders || {};
     m.arms.shoulders.l = xy(sh.l, m.arms.shoulders.l);
@@ -1009,6 +1013,7 @@ export function createPuppet(canvas) {
     },
     squash: { eye_l: 0, eye_r: 0 },
     squashDebug: null,
+    tints: new Map(),
     prevBodyY: null,
     view: {
       yaw: 0,
@@ -1506,15 +1511,17 @@ export function createPuppet(canvas) {
   /** Aplastado del ojo (0..1); con depuración se puede fijar a mano. */
   function squashOf(side) {
     if (!squashes(side)) return 0;
-    if (state.squashDebug != null) return clamp(state.squashDebug, 0, 1);
+    const dbg = state.squashDebug;
+    if (dbg != null && typeof dbg === 'object') {
+      if (dbg[side] != null) return clamp(dbg[side], 0, 1);
+    } else if (dbg != null) return clamp(dbg, 0, 1);
     return state.squash[side] || 0;
   }
 
-  /** Aplasta en vertical alrededor del centro del ojo. false = oculto (ojo cerrado). */
+  /** Aplasta en vertical alrededor del centro del ojo. Cerrado: queda una rayita (su silueta). */
   function applySquash(side) {
     const amt = squashOf(side);
     if (amt <= 0) return true;
-    if (amt >= 0.999) return false;
     const c = state.manifest.eyes?.[side === 'eye_l' ? 'l' : 'r']?.center;
     const cx = Array.isArray(c) ? +c[0] : +c?.x || 0;
     const cy = Array.isArray(c) ? +c[1] : +c?.y || 0;
@@ -1525,10 +1532,61 @@ export function createPuppet(canvas) {
     return true;
   }
 
+  /** Color de la rayita del ojo cerrado de ese lado (detectado al armar, o el elegido en el editor). */
+  function eyeLineColor(side) {
+    const key = side === 'eye_r' || side === 'r' ? 'r' : 'l';
+    return closedLineColor(state.manifest.eyes?.[key]?.closedLine, state.manifest.eyeLine?.[key]);
+  }
+
+  /** La silueta de un dibujo pintada de un solo color (sin dibujar nada nuevo). */
+  function tintedOf(file, color) {
+    const src = sourceOf(file);
+    if (!drawable(src)) return null;
+    const key = `${file}|${color}`;
+    const hit = state.tints.get(key);
+    if (hit && hit.src === src) return hit.c;
+    const w = src.naturalWidth || src.width;
+    const h = src.naturalHeight || src.height;
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const g = c.getContext('2d');
+    g.drawImage(src, 0, 0, w, h);
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = color;
+    g.fillRect(0, 0, w, h);
+    state.tints.set(key, { src, c });
+    return c;
+  }
+
+  /** Cuánto del color de contraste lleva el ojo al cerrarse (0 abierto/medio, 1 cerrado). */
+  function lineMix(side) {
+    if (!squashes(side)) return 0;
+    return clamp((squashOf(side) - 0.6) / 0.4, 0, 1);
+  }
+
+  /** Pinta con sus colores y, al cerrarse, funde a la silueta en el color de contraste. */
+  function paintClosing(side, draw) {
+    const t = lineMix(side);
+    if (t < 0.999) {
+      ctx.save();
+      ctx.globalAlpha *= 1 - t;
+      draw((file) => sourceOf(file));
+      ctx.restore();
+    }
+    if (t > 0.001) {
+      const color = eyeLineColor(side);
+      ctx.save();
+      ctx.globalAlpha *= t;
+      draw((file) => tintedOf(file, color));
+      ctx.restore();
+    }
+  }
+
   function paintEye(side) {
     const slot = state.eye[side];
     const view = state.view;
-    if (squashes(side) && !applySquash(side)) return;
+    if (squashes(side)) applySquash(side);
     const closed = slot.id === 'closed' && !squashes(side);
     const graphic = eyeGraphic(side, closed);
     const layered = !closed && Boolean(resolveStyle(state.manifest, side, state.eyeStyle).style?.white);
@@ -1539,7 +1597,7 @@ export function createPuppet(canvas) {
       if (state.useEdge) paintEdge(graphic, state.edgeOx, state.edgeAlpha);
       ctx.restore();
     }
-    eyePainter.paint(ctx, {
+    paintClosing(side, (getImage) => eyePainter.paint(ctx, {
       manifest: state.manifest,
       side,
       styleId: state.eyeStyle,
@@ -1548,9 +1606,9 @@ export function createPuppet(canvas) {
       fade: slot.fade,
       gazeX: view.gazeX,
       gazeY: view.gazeY,
-      getImage: (file) => sourceOf(file),
+      getImage,
       paintImage,
-    });
+    }));
   }
 
   function paintMouth() {
@@ -1839,11 +1897,12 @@ export function createPuppet(canvas) {
         applyLocal(part);
         // pieza del ojo (aro): se aplasta y se oculta con su ojo
         const ringSide = part.blinkWith === 'l' ? 'eye_l' : part.blinkWith === 'r' ? 'eye_r' : null;
-        const shown = ringSide ? applySquash(ringSide) : true;
-        if (!hidden && part.file && shown) {
+        if (ringSide) applySquash(ringSide);
+        if (!hidden && part.file) {
           if (useShadow) paintShadow(part);
           if (useEdge && resolveChain(part, m.byId).head) paintEdge(part, edgeOx, edgeAlpha);
-          paintImage(part);
+          if (ringSide && squashes(ringSide)) paintClosing(ringSide, (get) => blitEntry(get(part.file), part));
+          else paintImage(part);
           if (part.id === 'ear_r' && acc.bow) drawBow(ctx, part);
         }
         drawGizmo(part);
@@ -2201,7 +2260,26 @@ export function createPuppet(canvas) {
     },
     /** Pruebas: fija el aplastado de los ojos (0..1) o null para volver al parpadeo real. */
     setSquashDebug(value) {
+      if (value != null && typeof value === 'object') {
+        state.squashDebug = {
+          eye_l: value.eye_l == null ? null : clamp(finite(value.eye_l, 0), 0, 1),
+          eye_r: value.eye_r == null ? null : clamp(finite(value.eye_r, 0), 0, 1),
+        };
+        return;
+      }
       state.squashDebug = value == null ? null : clamp(finite(value, 0), 0, 1);
+    },
+    /** Color de la rayita del ojo cerrado por lado: detectado, opción y color final. */
+    eyeLineInfo() {
+      const out = {};
+      for (const key of ['l', 'r']) {
+        out[key] = {
+          detected: state.manifest.eyes?.[key]?.closedLine || null,
+          mode: state.manifest.eyeLine?.[key] || 'auto',
+          color: eyeLineColor(key),
+        };
+      }
+      return out;
     },
     /** Opción del personaje «Parpadeo aplastando ojos». */
     setSquashBlink(on) {

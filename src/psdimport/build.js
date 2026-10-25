@@ -4,6 +4,7 @@ import { nearestPoint } from './geom.js';
 import { medianSkin } from './mouthfind.js';
 import { nameGroup, pairInfo } from './names.js';
 import { paintPixels } from './raster.js';
+import { lumOf, pickClosedLine } from '../eyeline.js';
 
 const r2 = (n) => Math.round((+n || 0) * 100) / 100;
 
@@ -165,6 +166,61 @@ function buildStamp(parts) {
     h = Math.imul(h, 16777619);
   }
   return `imp-${(h >>> 0).toString(16)}`;
+}
+
+function eyeEntries(slot) {
+  const style = slot.styles.A || slot.styles.B || Object.values(slot.styles)[0] || {};
+  return ['full', 'white', 'iris', 'pupil', 'highlight', 'lash'].map((k) => style[k]).filter((e) => e?.image);
+}
+
+/** Oscuro de su línea: lo más oscuro de la cara (o null). */
+function lineDarkOf(part) {
+  if (!part?.image) return null;
+  const c = part.image;
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  const px = [];
+  for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200) px.push([d[i], d[i + 1], d[i + 2], lumOf(d[i], d[i + 1], d[i + 2])]);
+  if (!px.length) return null;
+  px.sort((a, b) => a[3] - b[3]);
+  const k = Math.max(1, Math.floor(px.length / 20));
+  const s = [0, 0, 0];
+  for (const p of px.slice(0, k)) { s[0] += p[0]; s[1] += p[1]; s[2] += p[2]; }
+  return s.map((v) => v / k);
+}
+
+/**
+ * Color de la rayita del ojo cerrado: compone lo que está debajo del ojo (las capas anteriores
+ * en el orden de dibujo) dentro de su recuadro y lo compara con el ojo.
+ */
+function detectClosedLine(side, parts, eyes, rings, ppu, lineDark) {
+  const own = [...eyeEntries(eyes[side]), ...rings.filter((r) => r.side === side).map((r) => r.part)];
+  if (!own.length) return null;
+  let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+  for (const e of own) { x0 = Math.min(x0, e.x); y0 = Math.min(y0, e.y); x1 = Math.max(x1, e.x + e.w); y1 = Math.max(y1, e.y + e.h); }
+  const w = Math.max(1, Math.round((x1 - x0) * ppu));
+  const h = Math.max(1, Math.round((y1 - y0) * ppu));
+  const canvas = (draw) => {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    g.setTransform(ppu, 0, 0, ppu, -x0 * ppu, -y0 * ppu);
+    draw(g);
+    return g.getImageData(0, 0, w, h).data;
+  };
+  const blit = (g, e) => g.drawImage(e.image, e.x, e.y, e.w, e.h);
+  const eyeId = `eye_${side}`;
+  const at = parts.findIndex((p) => p.id === eyeId);
+  const ringSet = new Set(rings.filter((r) => r.side === side).map((r) => r.part));
+  const eye = canvas((g) => own.forEach((e) => blit(g, e)));
+  const below = canvas((g) => {
+    for (let i = 0; i < (at < 0 ? parts.length : at); i += 1) {
+      const p = parts[i];
+      if (ringSet.has(p) || p.visibleInPsd === false) continue;
+      if (p.role === 'eye') { eyeEntries(eyes[p.id === 'eye_r' ? 'r' : 'l']).forEach((e) => blit(g, e)); continue; }
+      if (p.image) blit(g, p);
+    }
+  });
+  return pickClosedLine(eye, below, lineDark);
 }
 
 export function composeManifest(mapping) {
@@ -343,6 +399,15 @@ export function composeManifest(mapping) {
     part.blinkWith = side;
     part.pivot = eyes[side].center.slice();
     part.parallax = eyePart?.parallax ? eyePart.parallax.slice() : [0, 0];
+  }
+  // al cerrarse, el ojo queda como rayita de su silueta, del color que contrasta con lo de abajo
+  if (squash) {
+    const lineDark = lineDarkOf(facePart);
+    for (const side of ['l', 'r']) {
+      if (eyes[side].closed) continue;
+      const info = detectClosedLine(side, parts, eyes, rings, ppu, lineDark);
+      if (info) eyes[side].closedLine = info;
+    }
   }
   const shoulders = {
     l: [r2(shoulderRig.l[0]), r2(shoulderRig.l[1])],

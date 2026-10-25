@@ -696,3 +696,6 @@ body.stream #btn-exit-stream { display: inline-flex; }
 #botonera .bt-off .bt-check { background: transparent; }
 #botonera .bt-btn.bt-dragging { opacity: 0.6; outline: 1px dashed var(--accent); }
 #botonera .bt-empty { margin: 2px 4px; color: var(--muted); font-size: 11px; }
+
+.eyeline-row { display: flex; gap: 6px; align-items: center; }
+.eyeline-row select { flex: 1; }

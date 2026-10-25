@@ -121,6 +121,15 @@ export function createRigEditor(doc, puppet, toast) {
     squash.title = 'Para personajes sin capas de ojo cerrado: el ojo se achata y se oculta al parpadear.';
     squash.innerHTML = 'Parpadeo aplastando ojos<input id="rig-squash" type="checkbox" />';
     body.appendChild(squash);
+    // color de la rayita del ojo cerrado (se detecta al subir el dibujo; acá se puede cambiar)
+    const line = doc.createElement('div');
+    line.id = 'rig-eyeline';
+    line.title = 'Al cerrarse, el ojo queda como una rayita de su propia silueta. Auto: contrasta con lo que hay debajo del ojo.';
+    line.innerHTML = '<h3>Color del ojo cerrado</h3>'
+      + ['l', 'r'].map((k) => `<label class="slider-row">${k === 'l' ? 'Ojo izq' : 'Ojo der'}`
+        + `<span class="eyeline-row"><select data-eyeline="${k}"><option value="auto">Auto</option><option value="color">Color</option><option value="invert">Invertir</option></select>`
+        + `<input type="color" data-eyeline-color="${k}" /></span></label>`).join('');
+    body.appendChild(line);
     const motion = doc.createElement('div');
     motion.id = 'rig-motion';
     const title = doc.createElement('h3');
@@ -164,6 +173,18 @@ export function createRigEditor(doc, puppet, toast) {
       sync();
     }
     if (event.target?.id === 'rig-part') select(event.target.value);
+    const lineKey = event.target?.dataset?.eyeline;
+    const colorKey = event.target?.dataset?.eyelineColor;
+    if ((lineKey || colorKey) && event.type === 'change') {
+      const key = lineKey || colorKey;
+      const info = puppet.eyeLineInfo?.()?.[key];
+      let mode = event.target.value;
+      if (mode === 'color') mode = info?.color || '#000000';
+      const next = store();
+      next.eyeLine = { ...(next.eyeLine || {}), [key]: mode };
+      commit(next);
+      sync();
+    }
   }
 
   function onClick(event) {
@@ -256,6 +277,20 @@ export function createRigEditor(doc, puppet, toast) {
     if (box) box.checked = rig.visible !== false;
     const squash = body.querySelector('#rig-squash');
     if (squash) squash.checked = puppet.getManifest()?.squashBlink === true;
+    const line = body.querySelector('#rig-eyeline');
+    if (line) {
+      const info = puppet.eyeLineInfo?.() || {};
+      line.hidden = puppet.getManifest()?.squashBlink !== true;
+      for (const key of ['l', 'r']) {
+        const sel = line.querySelector(`[data-eyeline="${key}"]`);
+        const pick = line.querySelector(`[data-eyeline-color="${key}"]`);
+        const mode = info[key]?.mode || 'auto';
+        if (sel && doc.activeElement !== sel) sel.value = mode === 'auto' || mode === 'invert' ? mode : 'color';
+        if (pick && doc.activeElement !== pick) pick.value = info[key]?.color || '#000000';
+        const why = info[key]?.detected?.why;
+        if (sel) sel.title = why ? `Auto: ${why}` : 'Auto';
+      }
+    }
     const motion = body.querySelector('#rig-motion');
     if (motion) motion.hidden = !hasMotion(item);
     const preview = body.querySelector('#rig-preview');

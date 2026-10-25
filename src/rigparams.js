@@ -1,6 +1,7 @@
 /** Parámetros de cada pieza. Se guardan en localStorage y también viajan en rig.json. */
 
 import { clamp } from './filters.js';
+import { eyeLineMode } from './eyeline.js';
 
 export const RIG_KEY = 'bunny-vtuber-rig-v1';
 
@@ -240,23 +241,32 @@ function blinkOf(raw) {
   return { squash: raw.squash };
 }
 
+/** Color de la rayita del ojo cerrado por lado: 'auto' | 'invert' | '#rrggbb'. */
+function eyeLineOf(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  for (const key of ['l', 'r']) if (raw[key] != null) out[key] = eyeLineMode(raw[key]);
+  return Object.keys(out).length ? out : null;
+}
+
 export function normalizeStore(data) {
-  const empty = { order: null, parts: {}, neck: null, blink: null, build: null };
+  const empty = { order: null, parts: {}, neck: null, blink: null, build: null, eyeLine: null };
   if (!data || typeof data !== 'object' || Array.isArray(data)) return empty;
   const neck = neckOf(data._neck || data.neck);
   const blink = blinkOf(data._blink || data.blink);
+  const eyeLine = eyeLineOf(data._eyeLine || data.eyeLine);
   const rawBuild = data._build ?? data.build;
   const build = typeof rawBuild === 'string' && rawBuild ? rawBuild : null;
   if (data.parts && typeof data.parts === 'object' && !Array.isArray(data.parts)) {
-    return { order: Array.isArray(data.order) ? data.order : null, parts: { ...data.parts }, neck, blink, build };
+    return { order: Array.isArray(data.order) ? data.order : null, parts: { ...data.parts }, neck, blink, build, eyeLine };
   }
   const parts = {};
   for (const [key, value] of Object.entries(data)) {
-    if (key === 'order' || key === '_neck' || key === 'neck' || key === 'parts' || key === '_blink' || key === 'blink' || key === '_build' || key === 'build') continue;
+    if (key === 'order' || key === '_neck' || key === 'neck' || key === 'parts' || key === '_blink' || key === 'blink' || key === '_build' || key === 'build' || key === '_eyeLine' || key === 'eyeLine') continue;
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
     parts[key] = value;
   }
-  return { order: Array.isArray(data.order) ? data.order : null, parts, neck, blink, build };
+  return { order: Array.isArray(data.order) ? data.order : null, parts, neck, blink, build, eyeLine };
 }
 
 /**
@@ -294,6 +304,7 @@ export function packOverrides(data) {
   if (norm.build) flat._build = norm.build;
   if (norm.neck) flat._neck = norm.neck;
   if (norm.blink) flat._blink = norm.blink;
+  if (norm.eyeLine) flat._eyeLine = norm.eyeLine;
   for (const [id, row] of Object.entries(norm.parts)) flat[id] = row;
   return flat;
 }
@@ -345,6 +356,7 @@ export function applyOverrides(manifest, data) {
     if (raw && typeof raw === 'object') applyPartOverride(part, raw);
   }
   if (norm.blink) manifest.squashBlink = norm.blink.squash;
+  if (norm.eyeLine) manifest.eyeLine = { ...(manifest.eyeLine || {}), ...norm.eyeLine };
   if (norm.neck && manifest.neck) {
     manifest.neck.enabled = norm.neck.enabled;
     manifest.neck.length = norm.neck.length;
@@ -366,6 +378,7 @@ export function captureBase(manifest) {
       rig: { ...(p.rig || emptyRig(p)) },
     }])),
     squashBlink: manifest.squashBlink === true,
+    eyeLine: { ...(manifest.eyeLine || { l: 'auto', r: 'auto' }) },
     neck: manifest.neck ? {
       enabled: Boolean(manifest.neck.enabled),
       length: Number(manifest.neck.length) || 0,
@@ -387,6 +400,7 @@ export function restoreBase(manifest, base) {
   }
   manifest.parts = glueMouth(ordered);
   if (typeof base.squashBlink === 'boolean') manifest.squashBlink = base.squashBlink;
+  if (base.eyeLine) manifest.eyeLine = { ...base.eyeLine };
   for (const part of manifest.parts) {
     const saved = base.parts?.[part.id];
     if (!saved) continue;
