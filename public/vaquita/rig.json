@@ -1,0 +1,351 @@
+{
+ "name": "Vaquita",
+ "rigSize": [
+  600,
+  600
+ ],
+ "pxPerUnit": 3.0,
+ "source": "tools/vaquita/vaquita.psd (capas)",
+ "id": "vaquita",
+ "headMotion": 0.35,
+ "headRigid": true,
+ "headRoll": 0.4,
+ "paperEdge": false,
+ "swap": {
+  "mouth": {
+   "on": 0.07,
+   "off": 0.04,
+   "holdMs": 70,
+   "drop": 0.6,
+   "openId": "a",
+   "closedId": "neutral"
+  },
+  "eyes": {
+   "close": 0.55,
+   "open": 0.35
+  }
+ },
+ "parts": [
+  {
+   "file": "/vaquita/body.png",
+   "x": 88.28,
+   "y": 143.46,
+   "w": 406.79,
+   "h": 295.8,
+   "px": [
+    1220,
+    887
+   ],
+   "id": "body",
+   "role": "static",
+   "parent": "body",
+   "pivot": [
+    298.91,
+    570.52
+   ]
+  },
+  {
+   "file": "/vaquita/tail.png",
+   "x": 289.5,
+   "y": 22.35,
+   "w": 227.28,
+   "h": 228.0,
+   "px": [
+    682,
+    684
+   ],
+   "id": "tail",
+   "role": "hair",
+   "parent": "body",
+   "pivot": [
+    453.33,
+    220.67
+   ],
+   "motion": {
+    "sway": 4,
+    "limit": 7,
+    "speed": 0.35
+   }
+  },
+  {
+   "file": "/vaquita/legs.png",
+   "x": 48.47,
+   "y": 284.61,
+   "w": 389.17,
+   "h": 287.84,
+   "px": [
+    1168,
+    864
+   ],
+   "id": "legs",
+   "role": "static",
+   "parent": "body",
+   "pivot": [
+    298.91,
+    570.52
+   ]
+  },
+  {
+   "file": "/vaquita/neck.png",
+   "x": 60.05,
+   "y": 72.29,
+   "w": 176.85,
+   "h": 299.66,
+   "px": [
+    531,
+    899
+   ],
+   "id": "neck",
+   "role": "static",
+   "parent": "body",
+   "pivot": [
+    298.91,
+    570.52
+   ]
+  },
+  {
+   "file": "/vaquita/body_line_under.png",
+   "x": 90.21,
+   "y": 182.31,
+   "w": 140.9,
+   "h": 74.79,
+   "px": [
+    423,
+    224
+   ],
+   "id": "body_line_under",
+   "role": "static",
+   "parent": "body",
+   "pivot": [
+    298.91,
+    570.52
+   ]
+  },
+  {
+   "file": "/vaquita/head_color.png",
+   "x": 60.78,
+   "y": 72.29,
+   "w": 235.0,
+   "h": 200.5,
+   "px": [
+    705,
+    601
+   ],
+   "id": "head_color",
+   "role": "static",
+   "parent": "head",
+   "pivot": [
+    175.87,
+    247.21
+   ],
+   "parallax": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "eye_l",
+   "role": "eye",
+   "parent": "head",
+   "side": "l",
+   "pivot": [
+    133.64,
+    174.12
+   ],
+   "parallax": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "eye_r",
+   "role": "eye",
+   "parent": "head",
+   "side": "r",
+   "pivot": [
+    172.27,
+    207.82
+   ],
+   "parallax": [
+    0,
+    0
+   ]
+  },
+  {
+   "file": "/vaquita/body_line.png",
+   "x": 90.94,
+   "y": 158.18,
+   "w": 459.14,
+   "h": 286.87,
+   "px": [
+    1377,
+    861
+   ],
+   "id": "body_line",
+   "role": "static",
+   "parent": "body",
+   "pivot": [
+    298.91,
+    570.52
+   ]
+  },
+  {
+   "file": "/vaquita/head_line.png",
+   "x": 71.15,
+   "y": 80.49,
+   "w": 228.0,
+   "h": 180.95,
+   "px": [
+    684,
+    543
+   ],
+   "id": "head_line",
+   "role": "static",
+   "parent": "head",
+   "pivot": [
+    175.87,
+    247.21
+   ],
+   "parallax": [
+    0,
+    0
+   ]
+  }
+ ],
+ "mouths": {},
+ "mouthCenter": [
+  117.96,
+  215.85
+ ],
+ "extras": {},
+ "arms": {
+  "parts": {},
+  "shoulders": {
+   "l": [
+    142.09,
+    293.05
+   ],
+   "r": [
+    214.47,
+    293.05
+   ]
+  },
+  "hasCustom": false
+ },
+ "eyes": {
+  "l": {
+   "center": [
+    133.64,
+    174.12
+   ],
+   "styles": {
+    "A": {
+     "full": {
+      "file": "/vaquita/eye_l_open.png",
+      "x": 126.89,
+      "y": 161.32,
+      "w": 13.27,
+      "h": 26.06,
+      "px": [
+       40,
+       78
+      ]
+     }
+    },
+    "B": {
+     "full": {
+      "file": "/vaquita/eye_l_open.png",
+      "x": 126.89,
+      "y": 161.32,
+      "w": 13.27,
+      "h": 26.06,
+      "px": [
+       40,
+       78
+      ]
+     }
+    }
+   },
+   "closed": null
+  },
+  "r": {
+   "center": [
+    172.27,
+    207.82
+   ],
+   "styles": {
+    "A": {
+     "full": {
+      "file": "/vaquita/eye_r_open.png",
+      "x": 158.49,
+      "y": 190.27,
+      "w": 28.71,
+      "h": 34.74,
+      "px": [
+       86,
+       104
+      ]
+     }
+    },
+    "B": {
+     "full": {
+      "file": "/vaquita/eye_r_open.png",
+      "x": 158.49,
+      "y": 190.27,
+      "w": 28.71,
+      "h": 34.74,
+      "px": [
+       86,
+       104
+      ]
+     }
+    }
+   },
+   "closed": null
+  }
+ },
+ "eyeStyles": [
+  "A",
+  "B"
+ ],
+ "pivots": {
+  "neck": [
+   175.87,
+   247.21
+  ],
+  "feet": [
+   298.91,
+   570.52
+  ],
+  "eye_l": [
+   133.64,
+   174.12
+  ],
+  "eye_r": [
+   172.27,
+   207.82
+  ],
+  "headTop": [
+   137.26,
+   81.94
+  ]
+ },
+ "bounds": {
+  "x0": 51.37,
+  "y0": 25.0,
+  "x1": 548.63,
+  "y1": 571.0
+ },
+ "drawOrder": [
+  "body",
+  "tail",
+  "legs",
+  "neck",
+  "body_line_under",
+  "head_color",
+  "eye_l",
+  "eye_r",
+  "body_line",
+  "head_line"
+ ]
+}

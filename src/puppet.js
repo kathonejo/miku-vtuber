@@ -147,6 +147,11 @@ function normalizeManifest(json) {
   m.pxPerUnit = finite(json.pxPerUnit, 2);
   // 1 = giro de cabeza normal; menos para dibujos planos (una sola lámina de cara)
   m.headMotion = clamp(finite(json.headMotion, 1), 0, 1);
+  // headRigid: la cabeza solo gira y se desplaza (sin estirar ni sesgar); headRoll escala el giro
+  m.headRigid = json.headRigid === true;
+  m.headRoll = clamp(finite(json.headRoll, 1), 0, 1);
+  // paperEdge: false = sin el borde de papel al girar (para dibujos por capas, sin píxeles inventados)
+  m.paperEdge = json.paperEdge !== false;
   m.id = typeof json.id === 'string' ? json.id : null;
   // personajes por recortes: boca y ojos cambian de dibujo de golpe (sin fundido)
   m.swap = json.swap ? normalizeSwap(json.swap) : null;
@@ -1134,6 +1139,8 @@ export function createPuppet(canvas) {
       let next;
       if (gate) next = (side === 'eye_l' ? gate.closedL : gate.closedR) ? 'closed' : 'open';
       else next = stepEyeOpen(slot.id, side === 'eye_l' ? blinkL : blinkR);
+      // sin dibujo de ojo cerrado, el ojo queda abierto (no se inventa un parpadeo)
+      if (next === 'closed' && !state.manifest.eyes?.[side === 'eye_l' ? 'l' : 'r']?.closed) next = 'open';
       slot.id = next;
       slot.prev = next;
       slot.fade = 1;
@@ -1531,6 +1538,16 @@ export function createPuppet(canvas) {
   function headScale() {
     const view = state.view;
     const k = clamp(finite(state.manifest?.headMotion, 1), 0, 1);
+    if (state.manifest?.headRigid) {
+      return {
+        sx: 1,
+        sy: 1,
+        skew: 0,
+        offX: clamp(view.yaw * 9, -9, 9) * k,
+        offY: clamp(view.pitch * 9, -9, 9) * k,
+        roll: view.rollRad * finite(state.manifest.headRoll, 1),
+      };
+    }
     return {
       sx: 1 - (1 - clamp(1 - 0.14 * Math.abs(view.yaw), 0.86, 1)) * k,
       sy: 1 - (1 - clamp(1 - 0.06 * Math.abs(view.pitch), 0.94, 1)) * k,
@@ -1654,7 +1671,7 @@ export function createPuppet(canvas) {
     const view = state.view;
     const m = state.manifest;
     const useShadow = false;
-    const useEdge = settings?.paperThickness !== false;
+    const useEdge = settings?.paperThickness !== false && state.manifest.paperEdge !== false;
     const edgeAmt = clamp((Math.abs(view.yaw) - 0.05) / 0.25, 0, 1);
     const edgeOx = clamp(-Math.sign(view.yaw || 0) * Math.min(2, 1.2 + clamp(Math.abs(view.yaw), 0, 1)), -2, 2);
     const edgeCap = (state.bgLum ?? 1) < 0.3 ? 0.55 : 0.8;

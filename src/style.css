@@ -635,3 +635,64 @@ body.stream #btn-exit-stream { display: inline-flex; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ---- Botonera (modo stream / showcase) ---- */
+#botonera {
+  position: absolute;
+  z-index: 9;
+  left: 16px;
+  top: 80px;
+  max-width: 236px;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(12, 17, 20, 0.9);
+  border: 1px solid rgba(130, 210, 204, 0.22);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text);
+  font-size: 12px;
+  user-select: none;
+  touch-action: none;
+}
+#botonera[hidden] { display: none !important; }
+#botonera.moving { opacity: 0.85; cursor: grabbing; }
+#botonera .bt-head { display: flex; align-items: center; gap: 4px; cursor: grab; padding: 0 2px 4px; }
+#botonera.collapsed .bt-head { padding-bottom: 0; }
+#botonera .bt-grip { color: var(--muted); font-size: 13px; line-height: 1; }
+#botonera .bt-title { flex: 1; font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+#botonera .bt-ico {
+  width: 22px; height: 22px; padding: 0; border-radius: 7px; font-size: 12px; line-height: 1;
+  display: inline-grid; place-items: center; background: transparent; border-color: transparent; color: var(--muted);
+}
+#botonera .bt-ico:hover { background: rgba(255, 255, 255, 0.07); color: var(--text); }
+#botonera .bt-edit[aria-pressed="true"] { background: rgba(73, 198, 214, 0.2); color: var(--text); }
+#botonera .bt-body { display: flex; flex-wrap: wrap; gap: 4px; }
+#botonera.collapsed .bt-body, #botonera.collapsed .bt-hint { display: none; }
+#botonera .bt-hint { display: none; margin-top: 5px; color: var(--muted); font-size: 10px; text-align: center; }
+#botonera.editing .bt-hint { display: block; }
+#botonera .bt-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 7px; min-height: 26px; border-radius: 9px; font-size: 12px;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer; touch-action: none;
+}
+#botonera .bt-btn:hover { background: rgba(255, 255, 255, 0.1); }
+#botonera .bt-btn[aria-pressed="true"] {
+  background: rgba(73, 198, 214, 0.22); border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(73, 198, 214, 0.5);
+}
+#botonera .bt-icon { font-size: 13px; line-height: 1; }
+#botonera .bt-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.35); flex: none; }
+#botonera kbd {
+  font: 600 9px/1 var(--font); color: var(--muted); padding: 2px 3px; border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06); margin-left: 1px;
+}
+#botonera .bt-btn.bt-editing { cursor: grab; }
+#botonera .bt-btn.bt-off { opacity: 0.42; }
+#botonera .bt-check {
+  width: 12px; height: 12px; border-radius: 4px; display: inline-grid; place-items: center; font-size: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(73, 198, 214, 0.25);
+}
+#botonera .bt-off .bt-check { background: transparent; }
+#botonera .bt-btn.bt-dragging { opacity: 0.6; outline: 1px dashed var(--accent); }
+#botonera .bt-empty { margin: 2px 4px; color: var(--muted); font-size: 11px; }

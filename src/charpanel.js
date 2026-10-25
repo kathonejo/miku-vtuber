@@ -41,6 +41,7 @@ const ASSET_BASE = import.meta.env?.BASE_URL || './';
 const BUILTINS = [
   { id: BUNNY_ID, name: BUNNY_NAME, thumbnail: BUNNY_THUMB },
   { id: 'azul', name: 'Conejita azul', thumbnail: `${ASSET_BASE}azul/thumb.png` },
+  { id: 'vaquita', name: 'Vaquita', thumbnail: `${ASSET_BASE}vaquita/thumb.png` },
 ];
 const isBuiltin = (id) => BUILTINS.some((item) => item.id === id);
 function busy(doc, on, text) {

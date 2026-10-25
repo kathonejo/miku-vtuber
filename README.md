@@ -62,6 +62,19 @@ Los gestos de las mangas están desactivados por ahora. No hay barra de acciones
 
 El botón **Showcase** de la barra superior, o la tecla **S**, anima la marioneta sola: mira alrededor, parpadea, sonríe y habla sin cámara. Mientras está activo, el seguimiento y el ratón del modo demo no mandan, y el estado dice «Modo showcase». La opción se guarda con el resto de ajustes.
 
+## Botonera (modo stream y showcase)
+
+En el modo stream o en el showcase (tecla **S**) aparece una botonera con
+acciones rápidas: Ojos A/B (solo si el personaje tiene dos estilos distintos),
+cada accesorio, estilos, Saltar y, en la Conejita oficial, los gestos con las
+mangas. Solo ofrece lo que el personaje de verdad puede usar.
+
+- **✎** elige qué botones se ven (clic para marcar o desmarcar) y permite ordenarlos arrastrándolos.
+- **⠿ / título:** arrastralo para mover la botonera a cualquier lugar.
+- **▾** la pliega; **✕** o la tecla **B** la oculta para que OBS capture limpio (**B** la vuelve a mostrar).
+- **1–9** pulsan los primeros nueve botones.
+- Lo que elijas se guarda por personaje en este navegador.
+
 ## Editor de rigging
 
 El botón **Rigging** de la barra superior abre un panel del mismo estilo que Personalizar. Solo uno de los dos está abierto.
@@ -99,6 +112,26 @@ Además de la conejita oficial hay una segunda personaje incluida: la **Conejita
   - Si los ojos no responden bien: mirá a la cámara con la cara relajada, pulsá **Calibrar** y después parpadeá normal unas cuantas veces.
   - Prueba sin cámara de la lógica: `node tools/azul/swapface_check.mjs`.
 - Sus ajustes del editor de rigging se guardan aparte de los de la conejita oficial.
+
+## Personajes incluidos: Vaquita
+
+En **Personajes → Vaquita → Usar**. Está armada solo con las capas de su PSD
+(`tools/vaquita/vaquita.psd`, script `tools/vaquita/build_vaquita.py`): nada
+dibujado de nuevo y sin deformar, cada pieza solo se mueve y gira.
+
+| Capa del PSD | Pieza en el rig | Movimiento |
+| --- | --- | --- |
+| cuerpo (color + líneas) | `body`, `body_line` | rebote del cuerpo |
+| cola | `tail` | se balancea |
+| patas | `legs` | quietas, siguen al cuerpo |
+| cabeza vaca (parte de abajo) | `neck` | cuello |
+| cabeza vaca (resto) + cabeza (líneas) | `head_color`, `head_line` | gira desde el cuello, sin estirarse (`headRigid`) |
+| ojo izquierdo / ojo derecho | `eye_l_open`, `eye_r_open` | la mirada sigue a la cámara |
+
+Lo que el PSD no trae, y por eso no se inventa:
+- **Ojos cerrados:** no hay capas, así que no parpadea (los ojos quedan abiertos).
+- **Bocas:** la boca está dibujada dentro de la cabeza; no cambia al hablar.
+- **Orejas y cuerno:** vienen pegados a la cabeza; giran con ella pero no se balancean solos.
 
 ## Cargar tu propio personaje (PSD)
 

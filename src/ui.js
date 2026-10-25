@@ -1,11 +1,12 @@
 import { createActions } from './actions.js';
+import { createBotonera } from './botonera.js';
 import { createCharPanel } from './charpanel.js';
 import { finite } from './filters.js';
 import { createShowcase } from './showcase.js';
 import { composeManifest, importPsd } from './psdimport/read.js';
 import { createPuppet } from './puppet.js';
 import { createRigEditor } from './rigeditor.js';
-import { loadOverrides, shakeTargets } from './rigparams.js';
+import { currentRigCharacter, loadOverrides, shakeTargets } from './rigparams.js';
 import {
   ACCESSORY_DEFS,
   BACKGROUNDS,
@@ -81,6 +82,22 @@ export function mount(doc) {
   const actions = createActions();
   const showcase = createShowcase();
   const rig = createRigEditor(doc, puppet, (message) => toast(message));
+  const botonera = createBotonera(doc, {
+    stage,
+    settings,
+    persist: () => persist(),
+    onChange: () => syncControls(),
+    getManifest: () => puppet.getManifest(),
+    getCharId: () => currentRigCharacter(),
+    jump: () => puppet.triggerJump(),
+    action: (id) => actions.trigger(id),
+    toast: (message) => toast(message),
+  });
+  let botoneraTick = 0;
+  /** La botonera vive en el modo stream y en el showcase. */
+  function syncBotonera() {
+    botonera.setActive(doc.body.classList.contains('stream') || settings.showcase === true);
+  }
   let debugTargets = null;
   let toastTimer = 0;
   let wasCalibrating = false;
@@ -141,6 +158,7 @@ export function mount(doc) {
 
   const tracker = createTracker(video, setStatus);
   api.cameraDebug = () => tracker.cameraDebug(settings);
+  api.botonera = () => botonera;
   api.trackDebug = () => tracker.lastOutput();
   api.showcase = (on) => {
     setShowcase(on === true);
@@ -245,6 +263,7 @@ export function mount(doc) {
     for (const btn of doc.querySelectorAll('#eye-style-list button')) {
       btn.setAttribute('aria-pressed', String(btn.dataset.eye === (settings.eyeStyle === 'B' ? 'B' : 'A')));
     }
+    botonera.sync();
   }
 
   function syncSliderValues() {
@@ -372,6 +391,7 @@ export function mount(doc) {
     doc.body.classList.add('stream');
     hideUi(true);
     doc.getElementById('btn-exit-stream').hidden = false;
+    syncBotonera();
     const target = doc.getElementById('app');
     try {
       if (!doc.fullscreenElement && target.requestFullscreen) await target.requestFullscreen();
@@ -385,6 +405,7 @@ export function mount(doc) {
     doc.body.classList.remove('stream');
     hideUi(false);
     doc.getElementById('btn-exit-stream').hidden = true;
+    syncBotonera();
     try {
       if (doc.fullscreenElement) await doc.exitFullscreen();
     } catch {
@@ -435,6 +456,7 @@ export function mount(doc) {
     persist();
     const btn = doc.getElementById('btn-showcase');
     if (btn) btn.setAttribute('aria-pressed', String(settings.showcase));
+    syncBotonera();
     if (settings.showcase) {
       startScreen.hidden = true;
       demo.active = false;
@@ -461,6 +483,14 @@ export function mount(doc) {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       watchCalibration();
+      botoneraTick += dt;
+      if (botoneraTick > 0.25) {
+        botoneraTick = 0;
+        if (botonera.isActive()) {
+          botonera.refresh();
+          botonera.sync();
+        }
+      }
       const raw = currentTargets(now, dt);
       if (showcaseJump) puppet.triggerJump(showcaseJump);
       const fx = actions.step(dt, raw);
@@ -589,6 +619,7 @@ export function mount(doc) {
       doc.body.classList.remove('stream');
       hideUi(false);
       doc.getElementById('btn-exit-stream').hidden = true;
+      syncBotonera();
     }
     puppet.resize();
   });
@@ -601,6 +632,14 @@ export function mount(doc) {
       return;
     }
     if (typing) return;
+    if (botonera.key(event)) {
+      event.preventDefault();
+      return;
+    }
+    if ((event.key === 'b' || event.key === 'B') && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (botonera.isActive()) botonera.toggleHidden();
+      return;
+    }
     if (event.key === 'h' || event.key === 'H') {
       if (event.repeat) return;
       hideUi(!doc.body.classList.contains('ui-hidden'));
@@ -670,6 +709,7 @@ export function mount(doc) {
   syncControls();
   syncCameraButtons();
   if (settings.showcase) startScreen.hidden = true;
+  syncBotonera();
   setStatus(settings.showcase ? 'Modo showcase' : MSG.loading);
   tracker.ensureModels()
     .then(() => {
