@@ -29,6 +29,7 @@ export function capabilities(manifest, charId) {
   for (const def of ACCESSORY_DEFS) acc[def.id] = true;
   acc.bow = Boolean(byId.ear_r);
   acc.headphones = Boolean(byId.human_ears);
+  if (Array.isArray(m.accessories)) for (const id of Object.keys(acc)) if (!m.accessories.includes(id)) acc[id] = false;
   // los gestos dibujan las mangas de la conejita oficial: solo para ella
   const gestures = charId === 'bunny';
   return { eyesAB, acc, gestures };

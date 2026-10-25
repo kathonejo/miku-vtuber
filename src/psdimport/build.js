@@ -346,7 +346,7 @@ export function composeManifest(mapping) {
     const leader = layer.pairOf ? partOf.get(layer.pairOf) : null;
     if (leader) {
       parent = leader.id;
-      if (role === 'tail' || role === 'limb' || role === 'hair') role = 'static';
+      if (role === 'tail' || role === 'limb' || role === 'hair' || role === 'ear') role = 'static';
     }
     const pivot = leader
       ? leader.pivot.slice()
@@ -356,6 +356,8 @@ export function composeManifest(mapping) {
     const extra = { psdName: layer.name, parent, role, pivot, visibleInPsd: !layer.hidden, id };
     if (parent === 'head' && role === 'static') extra.parallax = [0, 0];
     if (role === 'tail') extra.motion = { sway: 4, speed: 0.35, stiffness: 55, damping: 5, gravity: 0, follow: 1, limit: 12 };
+    // orejas: resorte con vaivén suave (como la Conejita azul), la derecha un poco desfasada
+    if (role === 'ear') extra.motion = { sway: 5, speed: 0.4, stiffness: 130, damping: 13, gravity: 0, follow: 1, limit: 9, phase: id.endsWith('_r') ? 0.25 : 0 };
     if (role === 'limb') extra.motion = { sway: 0, speed: 0.3, stiffness: 90, damping: 12, gravity: 0, follow: 0, limit: 6 };
     const part = stamp(id, layer.canvas, layer.x, layer.y, layer.w, layer.h, extra);
     parts.push(part);

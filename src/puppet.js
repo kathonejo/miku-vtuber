@@ -167,6 +167,8 @@ function normalizeManifest(json) {
   m.swap = json.swap ? normalizeSwap(json.swap) : null;
   // sin capas de ojo cerrado: el ojo abierto se aplasta en vez de cambiar de dibujo
   m.squashBlink = json.squashBlink === true;
+  // accesorios que le quedan bien a este personaje (null = todos)
+  m.accessories = Array.isArray(json.accessories) ? json.accessories.filter((id) => typeof id === 'string') : null;
   const p = json.pivots || {};
   m.pivots.neck = xy(p.neck, m.pivots.neck);
   m.pivots.feet = xy(p.feet, m.pivots.feet);
@@ -1352,7 +1354,9 @@ export function createPuppet(canvas) {
     } else {
       // ojos aplastados: decisión calibrada por ojo con histéresis (la misma compuerta de los recortes)
       let gate = null;
-      if (squashes('eye_l') || squashes('eye_r')) {
+      // y ojos con dibujo cerrado propio: cambio de golpe por ojo, calibrado, con histéresis
+      const gated = (side) => squashes(side) || hasClosed(side);
+      if (gated('eye_l') || gated('eye_r')) {
         swapEyes.bind(state.manifest.id || currentRigCharacter() || 'personaje');
         gate = swapEyes.step(targets, {
           independentWink: settings?.independentWink === true,
@@ -1360,7 +1364,7 @@ export function createPuppet(canvas) {
         }, dt);
       }
       for (const side of ['eye_l', 'eye_r']) {
-        if (!squashes(side)) continue;
+        if (!gated(side)) continue;
         const slot = state.eye[side];
         const left = (side === 'eye_l') !== flip;
         let next;
@@ -1372,7 +1376,7 @@ export function createPuppet(canvas) {
       }
     }
     if (!state.manifest?.swap) for (const side of ['eye_l', 'eye_r']) {
-      if (squashes(side)) continue;
+      if (squashes(side) || hasClosed(side)) continue;
       const slot = state.eye[side];
       const blink = ((side === 'eye_l') !== flip) ? blinkL : blinkR;
       const next = stepEyeOpen(slot.id, blink);
@@ -1836,7 +1840,8 @@ export function createPuppet(canvas) {
     state.useEdge = useEdge;
     state.edgeOx = edgeOx;
     state.edgeAlpha = edgeAlpha;
-    const acc = settings?.accessories || {};
+    const accAll = settings?.accessories || {};
+    const acc = m.accessories ? Object.fromEntries(m.accessories.map((id) => [id, Boolean(accAll[id])])) : accAll;
     const { feet } = m.pivots;
 
     ctx.save();

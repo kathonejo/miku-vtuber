@@ -290,7 +290,12 @@ function assignPivots(layers, face) {
   const neck = face ? bandCenter(face, 0.08, true) : { x: 0, y: 0 };
   for (const layer of layers) {
     const role = layer.role;
-    if (role === 'ear_l' || role === 'ear_r') layer.pivotPsd = bandCenter(layer, 0.1, true);
+    if (role === 'ear_l' || role === 'ear_r') {
+      // base de la oreja: donde se apoya en la cabeza (sirve para orejas paradas y caídas de costado)
+      const heads = layers.filter((item) => item !== layer && !item.hidden
+        && (item === face || item.role === 'face' || nameGroup(item.name) === 'head'));
+      layer.pivotPsd = overlapCentroid(layer, heads) || bandCenter(layer, 0.1, true);
+    }
     else if (role === 'leg') layer.pivotPsd = bandCenter(layer, 0.15, false);
     else if (role === 'tail') {
       const bodies = layers.filter((item) => item !== layer && !item.hidden

@@ -62,7 +62,7 @@ const KINDS = {
 
 const EYE_PART = {
   blanco: 'white', iris: 'iris', pupila: 'pupil', brillo: 'highlight',
-  pestanas: 'lash', parpado: 'lash', cerrado: 'closed',
+  pestanas: 'lash', parpado: 'lash', cerrado: 'closed', cerrada: 'closed', cerrados: 'closed', closed: 'closed',
 };
 
 export function normName(value) {
@@ -97,6 +97,9 @@ export function nameSide(raw) {
   return short && short !== 'both' ? short : null;
 }
 
+/** Orejas (una sola): 'oreja', abreviada 'ore'/'orej', o en inglés. 'orejas' = orejas humanas. */
+export const EAR_WORDS = new Set(['oreja', 'orejita', 'ore', 'orej', 'ear']);
+
 const LINE_WORDS = new Set(['l', 'linea', 'lineas', 'line', 'lines', 'lineart', 'contorno', 'trazo']);
 const COLOR_WORDS = new Set(['color', 'colour', 'col', 'relleno', 'fill']);
 
@@ -107,6 +110,13 @@ export function pairInfo(raw) {
   let line = false;
   while (words.length > 1 && COLOR_WORDS.has(words[words.length - 1])) { words.pop(); color = true; }
   while (words.length > 1 && LINE_WORDS.has(words[words.length - 1])) { words.pop(); line = true; }
+  // 'oreja linea der' / 'oreja der color': la palabra de línea o color también puede ir en el medio
+  for (let i = words.length - 1; i > 0; i -= 1) {
+    if (words[i].length > 1 && LINE_WORDS.has(words[i])) { words.splice(i, 1); line = true; }
+    else if (COLOR_WORDS.has(words[i])) { words.splice(i, 1); color = true; }
+  }
+  // 'ore izq color' y 'orej izq l': la misma oreja escrita corta
+  if (EAR_WORDS.has(words[0])) words[0] = 'oreja';
   return { key: words.join(' '), color, line: line || !color };
 }
 
@@ -143,7 +153,8 @@ export function classifyName(raw) {
   if (!words.length) return { role: 'unknown', known: false, name };
   if (has(words, 'pelo') && has(words, 'atras')) return { role: 'hair_back', known: true, name };
   if (has(words, 'orejas')) return { role: 'human_ears', known: true, name };
-  if (has(words, 'oreja')) return { role: 'ear', known: true, name, side: nameSide(name) };
+  if (has(words, 'ears')) return { role: 'human_ears', known: true, name };
+  if (words.some((word) => EAR_WORDS.has(word))) return { role: 'ear', known: true, name, side: nameSide(name) };
   if (has(words, 'flequillo')) return { role: 'bangs', known: true, name };
   if (has(words, 'cuello')) return { role: 'neck', known: true, name };
   const group = nameGroup(name);
@@ -176,17 +187,17 @@ export function classifyName(raw) {
 function classifyEye(words) {
   const head = words[0];
   const line = head === 'linea' && has(words, 'ojo');
-  const eyeWord = ['ojo', 'iris', 'pupila', 'brillo', 'pestanas', 'parpado'].includes(head) || line;
+  const eyeWord = ['ojo', 'eye', 'iris', 'pupila', 'brillo', 'pestanas', 'parpado'].includes(head) || line;
   if (!eyeWord && !words.some((word) => EYE_PART[word])) return null;
   let part = 'full';
-  if (has(words, 'cerrado')) part = 'closed';
+  if (words.some((word) => EYE_PART[word] === 'closed')) part = 'closed';
   else if (line || has(words, 'pestanas') || has(words, 'parpado')) part = 'lash';
   else {
     for (const word of words) {
       if (EYE_PART[word]) { part = EYE_PART[word]; break; }
     }
   }
-  if (part === 'full' && !has(words, 'ojo') && head !== 'ojo') return null;
+  if (part === 'full' && !has(words, 'ojo') && !has(words, 'eye')) return null;
   return { role: 'eye', eyePart: part, style: part === 'closed' ? null : eyeStyle(words) };
 }
 
