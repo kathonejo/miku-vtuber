@@ -7,5 +7,14 @@
   "portada": "portada.webp",
   "fullBytes": 25287982,
   "prevBytes": 696120
+ },
+ {
+  "id": "nubenejos",
+  "nombre": "Nubenejos",
+  "proporcion": "16:9",
+  "detalle": "83 capas · 5760×3240",
+  "portada": "portada.webp",
+  "fullBytes": 11008422,
+  "prevBytes": 1635704
  }
 ]
