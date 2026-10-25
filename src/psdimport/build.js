@@ -126,6 +126,47 @@ function groupParent(layer) {
   return null;
 }
 
+/** ¿La pieza va con la cabeza? (directo o colgada de otra pieza de la cabeza) */
+function followsHead(part, byId) {
+  let cur = part;
+  for (let i = 0; cur && i < 16; i += 1) {
+    if (cur.role === 'eye' || cur.role === 'mouth' || cur.parent === 'head') return true;
+    if (cur.parent === 'body' || !cur.parent) return false;
+    cur = byId.get(cur.parent);
+  }
+  return false;
+}
+
+/**
+ * La cabeza gira como una sola pieza: una capa del cuerpo (línea del cuerpo, pata) que en el
+ * archivo cae entre capas de la cara baja a justo debajo de la cara. Así la línea del cuerpo
+ * queda separada de la de la cabeza y no cruza la cara al girar. Nada se corta ni se redibuja.
+ */
+function headAsOne(parts) {
+  const byId = new Map(parts.map((part) => [part.id, part]));
+  const head = parts.map((part) => followsHead(part, byId));
+  const first = parts.findIndex((part, i) => head[i] && part.role !== 'hair' && part.role !== 'ear');
+  let last = -1;
+  head.forEach((on, i) => { if (on) last = i; });
+  if (first < 0 || last <= first) return;
+  const lift = [];
+  const keep = [];
+  for (let i = first; i <= last; i += 1) (head[i] ? keep : lift).push(parts[i]);
+  if (!lift.length) return;
+  parts.splice(first, last - first + 1, ...lift, ...keep);
+}
+
+/** Huella corta de las piezas: ajustes guardados de otro armado no imponen orden/padres/pivotes. */
+function buildStamp(parts) {
+  const text = JSON.stringify(parts.map((p) => [p.id, p.parent, p.pivot, p.x, p.y, p.w, p.h, p.psdName]));
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `imp-${(h >>> 0).toString(16)}`;
+}
+
 export function composeManifest(mapping) {
   const meta = mapping.meta;
   const factor = Math.min(1, meta.pxPerUnit / meta.scale);
@@ -272,6 +313,7 @@ export function composeManifest(mapping) {
     if (layer.role === 'neck') extras.neck = part;
   }
   if (!mouthSlot) putMouthSlot();
+  headAsOne(parts);
 
   // nada inventado: sin capas de boca, la boca queda como está dibujada en la cara
   const faceLayer = mapping.layers.find((layer) => layer.role === 'face');
@@ -348,6 +390,9 @@ export function composeManifest(mapping) {
     },
     bounds: { x0: r2(x0), y0: r2(y0), x1: r2(x1), y1: r2(y1) },
     drawOrder: parts.map((part) => part.id),
+    build: buildStamp(parts),
+    // dibujo por capas: sin el borde de papel al girar (no se agregan líneas que no están en el archivo)
+    paperEdge: false,
     squashBlink: squash,
     blink: { frames: ['open', 'closed'], note: squash ? 'sin capas de ojo cerrado: el ojo abierto se aplasta' : 'open = estilo de ojo; closed = capa del PSD' },
   };

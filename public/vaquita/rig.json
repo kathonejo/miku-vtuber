@@ -195,16 +195,16 @@
    ]
   },
   {
-   "file": "/vaquita/body_line_under.png",
+   "file": "/vaquita/body_line.png",
    "x": 90.21,
-   "y": 182.31,
-   "w": 140.9,
-   "h": 74.79,
+   "y": 158.18,
+   "w": 388.45,
+   "h": 276.74,
    "px": [
-    423,
-    224
+    1165,
+    830
    ],
-   "id": "body_line_under",
+   "id": "body_line",
    "role": "static",
    "parent": "body",
    "pivot": [
@@ -214,6 +214,37 @@
    "psdName": [
     "vaca cuerpo"
    ]
+  },
+  {
+   "file": "/vaquita/leg_p4.png",
+   "x": 420.27,
+   "y": 336.24,
+   "w": 129.8,
+   "h": 108.81,
+   "px": [
+    389,
+    326
+   ],
+   "id": "leg_p4",
+   "role": "limb",
+   "parent": "body",
+   "pivot": [
+    456.26,
+    348.2
+   ],
+   "psdName": [
+    "p4 color",
+    "p4 l"
+   ],
+   "motion": {
+    "sway": 0,
+    "speed": 0.3,
+    "stiffness": 90,
+    "damping": 12,
+    "gravity": 0,
+    "follow": 0,
+    "limit": 6
+   }
   },
   {
    "file": "/vaquita/head_color.png",
@@ -275,58 +306,6 @@
    "psdName": [
     "ojo der"
    ]
-  },
-  {
-   "file": "/vaquita/body_line.png",
-   "x": 90.94,
-   "y": 158.18,
-   "w": 387.73,
-   "h": 276.74,
-   "px": [
-    1163,
-    830
-   ],
-   "id": "body_line",
-   "role": "static",
-   "parent": "body",
-   "pivot": [
-    298.91,
-    570.52
-   ],
-   "psdName": [
-    "vaca cuerpo"
-   ]
-  },
-  {
-   "file": "/vaquita/leg_p4.png",
-   "x": 420.27,
-   "y": 336.24,
-   "w": 129.8,
-   "h": 108.81,
-   "px": [
-    389,
-    326
-   ],
-   "id": "leg_p4",
-   "role": "limb",
-   "parent": "body",
-   "pivot": [
-    456.26,
-    348.2
-   ],
-   "psdName": [
-    "p4 color",
-    "p4 l"
-   ],
-   "motion": {
-    "sway": 0,
-    "speed": 0.3,
-    "stiffness": 90,
-    "damping": 12,
-    "gravity": 0,
-    "follow": 0,
-    "limit": 6
-   }
   },
   {
    "file": "/vaquita/head_line.png",
@@ -485,12 +464,12 @@
   "leg_p_der",
   "leg_p2_der",
   "neck",
-  "body_line_under",
+  "body_line",
+  "leg_p4",
   "head_color",
   "eye_l",
   "eye_r",
-  "body_line",
-  "leg_p4",
   "head_line"
- ]
+ ],
+ "build": "0ac964c362fd"
 }

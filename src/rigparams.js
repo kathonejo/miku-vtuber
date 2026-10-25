@@ -241,20 +241,39 @@ function blinkOf(raw) {
 }
 
 export function normalizeStore(data) {
-  const empty = { order: null, parts: {}, neck: null, blink: null };
+  const empty = { order: null, parts: {}, neck: null, blink: null, build: null };
   if (!data || typeof data !== 'object' || Array.isArray(data)) return empty;
   const neck = neckOf(data._neck || data.neck);
   const blink = blinkOf(data._blink || data.blink);
+  const rawBuild = data._build ?? data.build;
+  const build = typeof rawBuild === 'string' && rawBuild ? rawBuild : null;
   if (data.parts && typeof data.parts === 'object' && !Array.isArray(data.parts)) {
-    return { order: Array.isArray(data.order) ? data.order : null, parts: { ...data.parts }, neck, blink };
+    return { order: Array.isArray(data.order) ? data.order : null, parts: { ...data.parts }, neck, blink, build };
   }
   const parts = {};
   for (const [key, value] of Object.entries(data)) {
-    if (key === 'order' || key === '_neck' || key === 'neck' || key === 'parts' || key === '_blink' || key === 'blink') continue;
+    if (key === 'order' || key === '_neck' || key === 'neck' || key === 'parts' || key === '_blink' || key === 'blink' || key === '_build' || key === 'build') continue;
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
     parts[key] = value;
   }
-  return { order: Array.isArray(data.order) ? data.order : null, parts, neck, blink };
+  return { order: Array.isArray(data.order) ? data.order : null, parts, neck, blink, build };
+}
+
+/**
+ * Ajustes guardados contra otro armado del mismo personaje (piezas recortadas de nuevo):
+ * su orden, padres y pivotes ya no corresponden, se descartan. El resto se conserva.
+ */
+export function fitStore(manifest, data) {
+  if (!data) return data;
+  const norm = normalizeStore(data);
+  const build = typeof manifest?.build === 'string' && manifest.build ? manifest.build : null;
+  if (!build || norm.build === build) return norm;
+  const parts = {};
+  for (const [id, row] of Object.entries(norm.parts)) {
+    const { pivot, parent, ...rest } = row || {};
+    parts[id] = rest;
+  }
+  return { ...norm, order: null, parts, build };
 }
 
 export function loadOverrides(id) {
@@ -272,6 +291,7 @@ export function loadOverrides(id) {
 export function packOverrides(data) {
   const norm = normalizeStore(data);
   const flat = { order: norm.order || [] };
+  if (norm.build) flat._build = norm.build;
   if (norm.neck) flat._neck = norm.neck;
   if (norm.blink) flat._blink = norm.blink;
   for (const [id, row] of Object.entries(norm.parts)) flat[id] = row;
@@ -318,7 +338,7 @@ export function collectOverrides(parts) {
 
 export function applyOverrides(manifest, data) {
   if (!manifest || !data) return manifest;
-  const norm = normalizeStore(data);
+  const norm = fitStore(manifest, data);
   manifest.parts = applyOrder(manifest.parts, norm.order);
   for (const part of manifest.parts) {
     const raw = norm.parts[part.id];

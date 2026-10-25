@@ -17,13 +17,17 @@ Capas del PSD (de abajo hacia arriba) y a qué pieza van, en el mismo orden:
                                        -> head_color  (color y mancha negra de la cabeza)
   'ojo izq' + 'cabeza - copia'         -> eye_l       (punto y aro blanco; dibujado a la derecha)
   'ojo der'                            -> eye_r       (dibujado a la izquierda: nombres de la autora)
-  'vaca cuerpo'                        -> body_line   (contorno y manchas del cuerpo)
+  'vaca cuerpo'                        -> body_line   (línea del cuerpo y manchas, entera, con el cuerpo)
   'p4 color', 'p4 l'                   -> leg_p4      (pata de atrás, encima del contorno del cuerpo)
-  'cabeza'                             -> head_line   (contorno de la cabeza, cuerno, nariz y boca)
+  'cabeza'                             -> head_line   (línea de la cabeza, cuerno, nariz y boca)
+Orden de dibujo: el del archivo, salvo que 'vaca cuerpo' y la pata p4 van debajo de
+todas las capas de la cabeza: la cabeza (color, mancha, ojos, aro y su línea) gira
+como una sola pieza y las dos líneas quedan separadas, cada una con lo suyo.
   'Capa 5' está vacía.
 No hay capas de ojos cerrados ni de boca abierta: los ojos parpadean aplastándose
 (squashBlink) y la boca queda como está dibujada.
 """
+import hashlib
 import json
 import os
 import warnings
@@ -96,18 +100,13 @@ legs = [(pid, over(full(c), full(l)), (c, l)) for pid, c, l in LEGS]
 leg_p4 = over(full('p4 color'), full('p4 l'))
 eye_r_img = full('ojo der')                                   # dibujado a la izquierda
 eye_l_img = over(full('ojo izq'), full('cabeza - copia'))     # dibujado a la derecha
+# 'vaca cuerpo' es la línea del cuerpo: entera, va con el cuerpo, sin cortarla.
+# Se dibuja debajo de las capas de la cabeza ('cabeza vaca', 'cabeza color', ojos,
+# 'cabeza'), así la cabeza gira como una sola pieza con su propia línea encima.
 body_line = full('vaca cuerpo')
-# El contorno del cuerpo pasa por encima de la mancha negra de la cabeza (negro sobre
-# negro). Esa parte se dibuja debajo de la cabeza: quieta se ve igual, y al girar la
-# cabeza no deja una línea gris suelta encima de la mancha.
-_hc = over(head_color, head_line)
-_dark = np.clip((0.25 - _hc[..., :3].max(2)) / 0.15, 0, 1)   # solo donde la cabeza es negra
-head_cover = np.clip((_hc[..., 3] - 0.85) / 0.15, 0, 1) * _dark
-body_line_under = body_line * head_cover[..., None]
-body_line = body_line * (1 - head_cover[..., None])
 
 # ---- rig: 600x600, personaje de 546 de alto con el borde de arriba en 25
-allm = over(body, tail, *[im for _, im, _ in legs], neck, head_color, eye_l_img, eye_r_img, body_line, leg_p4, head_line)[..., 3] > 0.02
+allm = over(body, tail, *[im for _, im, _ in legs], neck, body_line, leg_p4, head_color, eye_l_img, eye_r_img, head_line)[..., 3] > 0.02
 ys, xs = np.where(allm)
 BX0, BY0, BX1, BY1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
 RIG = 600
@@ -177,7 +176,9 @@ part('tail', tail, 'tail', 'body', TAIL_BASE, psdName=['vaca cola color', 'vaca 
 for pid, img, names in legs:
     part(pid, img, 'limb', 'body', hip(img), psdName=list(names), motion=dict(LEG_MOTION))
 part('neck', neck, 'static', 'body', FEET, psdName=['cabeza cuello', 'cabeza vaca'])
-part('body_line_under', body_line_under, 'static', 'body', FEET, psdName=['vaca cuerpo'])
+# línea del cuerpo y pata de atrás: con el cuerpo, debajo de toda la cabeza
+part('body_line', body_line, 'static', 'body', FEET, psdName=['vaca cuerpo'])
+part('leg_p4', leg_p4, 'limb', 'body', hip(leg_p4), psdName=['p4 color', 'p4 l'], motion=dict(LEG_MOTION))
 part('head_color', head_color, 'static', 'head', NECK, parallax=[0, 0], psdName=['cabeza vaca', 'cabeza color'])
 eye_l = save('eye_l_open.png', eye_l_img)
 eye_r = save('eye_r_open.png', eye_r_img)
@@ -185,11 +186,9 @@ parts.append({'id': 'eye_l', 'role': 'eye', 'parent': 'head', 'side': 'l', 'pivo
               'psdName': ['ojo izq', 'cabeza - copia']})
 parts.append({'id': 'eye_r', 'role': 'eye', 'parent': 'head', 'side': 'r', 'pivot': center(eye_r_img), 'parallax': [0, 0],
               'psdName': ['ojo der']})
-part('body_line', body_line, 'static', 'body', FEET, psdName=['vaca cuerpo'])
-part('leg_p4', leg_p4, 'limb', 'body', hip(leg_p4), psdName=['p4 color', 'p4 l'], motion=dict(LEG_MOTION))
 part('head_line', head_line, 'static', 'head', NECK, parallax=[0, 0], psdName=['cabeza'])
 
-comp = over(body, tail, *[im for _, im, _ in legs], neck, body_line_under, head_color, eye_l_img, eye_r_img, body_line, leg_p4, head_line)
+comp = over(body, tail, *[im for _, im, _ in legs], neck, body_line, leg_p4, head_color, eye_l_img, eye_r_img, head_line)
 ref = psd.composite()
 ref = np.asarray(ref).astype(np.float32) / 255
 ref[..., :3] *= ref[..., 3:]
@@ -237,6 +236,10 @@ manifest = {
     'bounds': dict(zip(['x0', 'y0'], rig(BX0, BY0))) | dict(zip(['x1', 'y1'], rig(BX1, BY1))),
     'drawOrder': [p['id'] for p in parts],
 }
+# huella del armado: si cambian las piezas, los ajustes guardados de un armado viejo
+# no imponen su orden, padres ni pivotes
+manifest['build'] = hashlib.sha1(json.dumps(
+    [[p['id'], p['parent'], p['pivot'], p.get('x'), p.get('y'), p.get('w'), p.get('h')] for p in parts]).encode()).hexdigest()[:12]
 with open(os.path.join(OUT, 'rig.json'), 'w') as f:
     json.dump(manifest, f, indent=1, ensure_ascii=False)
 if DBG and os.path.isdir(DBG):

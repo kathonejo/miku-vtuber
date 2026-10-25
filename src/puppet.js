@@ -6,6 +6,7 @@ import { neckAnchorId, neckLiftAmount, paintNeck } from './neckdraw.js';
 import { resolveChain } from './rigchain.js';
 import {
   applyOverrides as applyRigData,
+  fitStore as fitRigStore,
   captureBase,
   currentRigCharacter,
   hasMotion,
@@ -159,6 +160,8 @@ function normalizeManifest(json) {
   // paperEdge: false = sin el borde de papel al girar (para dibujos por capas, sin píxeles inventados)
   m.paperEdge = json.paperEdge !== false;
   m.id = typeof json.id === 'string' ? json.id : null;
+  // huella del armado (personajes incluidos): ajustes guardados de otro armado no imponen orden/padres/pivotes
+  m.build = typeof json.build === 'string' && json.build ? json.build : null;
   // personajes por recortes: boca y ojos cambian de dibujo de golpe (sin fundido)
   m.swap = json.swap ? normalizeSwap(json.swap) : null;
   // sin capas de ojo cerrado: el ojo abierto se aplasta en vez de cambiar de dibujo
@@ -1117,8 +1120,9 @@ export function createPuppet(canvas) {
 
   function installOverrides(store) {
     restoreBase(state.manifest, state.base);
-    if (store) applyRigData(state.manifest, store);
-    state.rigStore = store || null;
+    const fitted = store ? fitRigStore(state.manifest, store) : null;
+    if (fitted) applyRigData(state.manifest, fitted);
+    state.rigStore = fitted || null;
     reindex();
     initSprings();
   }
@@ -2045,7 +2049,7 @@ export function createPuppet(canvas) {
     state.manifest = normalizeManifest(json);
     for (const part of state.manifest.parts) stampPart(part);
     state.base = captureBase(state.manifest);
-    state.rigStore = loadOverrides();
+    state.rigStore = fitRigStore(state.manifest, loadOverrides());
     if (state.rigStore) applyRigData(state.manifest, state.rigStore);
     reindex();
     sleeves.bind(state.manifest);
@@ -2119,8 +2123,8 @@ export function createPuppet(canvas) {
     state.prevBodyY = null;
     for (const part of m.parts) stampPart(part);
     state.base = captureBase(m);
-    state.rigStore = options.overrides || null;
-    if (options.overrides) applyRigData(m, options.overrides);
+    state.rigStore = options.overrides ? fitRigStore(m, options.overrides) : null;
+    if (state.rigStore) applyRigData(m, state.rigStore);
     reindex();
     sleeves.bind(m);
     bakeCaches();
