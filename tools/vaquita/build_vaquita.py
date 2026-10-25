@@ -294,6 +294,14 @@ manifest = {
 # no imponen su orden, padres ni pivotes
 manifest['build'] = hashlib.sha1(json.dumps(
     [[p['id'], p['parent'], p['pivot'], p.get('x'), p.get('y'), p.get('w'), p.get('h')] for p in parts]).encode()).hexdigest()[:12]
+# huella del dibujo: cambia cuando cambian los píxeles aunque las piezas sean las mismas
+# (no toca 'build', así los ajustes guardados de la usuaria se conservan)
+_h = hashlib.sha1()
+for fn in sorted(os.listdir(OUT)):
+    if fn.endswith('.png'):
+        with open(os.path.join(OUT, fn), 'rb') as g:
+            _h.update(fn.encode() + g.read())
+manifest['art'] = _h.hexdigest()[:12]
 with open(os.path.join(OUT, 'rig.json'), 'w') as f:
     json.dump(manifest, f, indent=1, ensure_ascii=False)
-print('wrote', OUT, 'scale', round(SCALE, 4), 'build', manifest['build'])
+print('wrote', OUT, 'scale', round(SCALE, 4), 'build', manifest['build'], 'art', manifest['art'])
