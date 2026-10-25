@@ -8,6 +8,7 @@ import { bake, cyclesFor, sample } from './anim.js';
 import { renderFrame, viewMatrix } from './render.js';
 import { exportVideo } from './exporter.js';
 import * as store from './store.js';
+import { listBuiltins, loadBuiltin } from './builtins.js';
 
 /* ---------- utilidades de DOM ---------- */
 function el(tag, attrs = {}, ...kids) {
@@ -40,19 +41,27 @@ const S = {
   editPose: null,
   dirty: true,
   exporting: false,
+  source: null, // { kind: 'builtin', id } o { kind: 'import' }
+  builtinJson: null,
+  fullReady: null,
+  builtins: [],
 };
 
 /* ---------- estructura ---------- */
 const app = $('#sc-app');
-const statusEl = el('span', { class: 'sc-status', role: 'status' }, 'Importá tu ilustración por capas');
+const statusEl = el('span', { class: 'sc-status', role: 'status' }, 'Abriendo tu escena…');
 const fileInput = el('input', { type: 'file', multiple: true, accept: '.psd,.png,.webp,.json', hidden: true, id: 'sc-file' });
 const playBtn = el('button', { type: 'button', class: 'sc-play', title: 'Reproducir o pausar (barra espaciadora)', onclick: () => setPlaying(!S.playing) }, '⏸ Pausa');
 const exportTopBtn = el('button', { type: 'button', class: 'primary', title: 'Elegí tamaño y exportá el MP4', onclick: () => { setTab('exportar'); } }, 'Exportar video');
+const artMenu = el('div', { class: 'sc-art-menu', hidden: true, role: 'menu' });
 const top = el('header', { class: 'sc-top' },
   el('div', { class: 'sc-brand' },
     el('a', { href: './', class: 'sc-back', title: 'Volver a la marioneta VTuber' }, '← VTuber'),
     el('div', {}, el('strong', {}, 'Escena'), statusEl)),
   el('div', { class: 'sc-actions' },
+    el('div', { class: 'sc-menu-wrap' },
+      el('button', { type: 'button', class: 'sc-art-btn', title: 'Ilustraciones listas para animar, con sus capas ya separadas', 'aria-haspopup': 'true', onclick: (e) => { e.stopPropagation(); toggleArtMenu(); } }, '🖼 Arte disponible'),
+      artMenu),
     el('label', { class: 'btn', title: 'Un PSD con capas, o varios PNG (y su indice_capas.json si lo tenés)' }, 'Importar PSD o PNG', fileInput),
     playBtn, exportTopBtn));
 
@@ -63,13 +72,21 @@ const layersPane = el('aside', { class: 'sc-layers' },
   layerList);
 
 const view = el('canvas', { class: 'sc-view', 'aria-label': 'Vista previa de la escena' });
+const emptyArt = el('div', { class: 'sc-art-grid' });
+const loadBox = el('div', { class: 'sc-loading', hidden: true },
+  el('p', { class: 'sc-loading-text' }, 'Cargando…'),
+  el('div', { class: 'sc-bar' }, el('i')));
 const empty = el('div', { class: 'sc-empty' },
   el('div', { class: 'sc-card' },
     el('p', { class: 'eyebrow' }, 'Escena animada'),
     el('h1', {}, 'Tu ilustración, en movimiento'),
-    el('p', { class: 'lead' }, 'Soltá acá tu PSD por capas o tus PNG sueltos (con su indice_capas.json). Cada capa queda tal cual la dibujaste: sólo le damos movimiento.'),
-    el('div', { class: 'sc-card-actions' }, el('label', { class: 'btn primary' }, 'Elegir archivos', el('input', { type: 'file', multiple: true, accept: '.psd,.png,.webp,.json', hidden: true, onchange: (e) => handleFiles(e.target.files) }))),
-    el('p', { class: 'sc-small' }, 'Todo queda en tu compu; nada se sube a internet.')));
+    loadBox,
+    el('p', { class: 'lead' }, 'Elegí un dibujo para empezar: ya viene con sus capas y movimientos listos.'),
+    emptyArt,
+    el('p', { class: 'sc-small' }, '¿Tenés otro? ',
+      el('label', { class: 'sc-link', title: 'Un PSD con capas, o varios PNG sueltos (con su indice_capas.json)' }, 'Importá tu PSD o tus PNG', el('input', { type: 'file', multiple: true, accept: '.psd,.png,.webp,.json', hidden: true, onchange: (e) => handleFiles(e.target.files) })),
+      ' (lo que importás queda sólo en tu compu).')));
+const fullBadge = el('span', { class: 'sc-full-badge', hidden: true, title: 'Mientras tanto ya podés mirar y tocar todo; el video se exporta con las capas completas' });
 const timeLabel = el('span', { class: 'sc-time' }, '0.0 s');
 const scrub = el('input', { type: 'range', min: 0, max: 1000, value: 0, class: 'sc-scrub', 'aria-label': 'Tiempo', title: 'Mové para ver cualquier momento del loop' });
 const toolCapa = el('button', { type: 'button', class: 'sc-seg on', title: 'Clic para elegir una capa; arrastrala para darle pose; arrastrá el punto para mover el pivote', onclick: () => setTool('capa') }, 'Mover capa');
@@ -79,7 +96,7 @@ const stage = el('section', { class: 'sc-stage' },
   el('div', { class: 'sc-canvas-wrap' }, view, empty),
   el('div', { class: 'sc-timeline' },
     el('div', { class: 'sc-segs' }, toolCapa, toolEnc),
-    timeLabel, scrub, frameLabel));
+    timeLabel, scrub, frameLabel, fullBadge));
 
 const props = el('div', { class: 'sc-props-body' });
 const tabs = el('div', { class: 'sc-tabs', role: 'tablist' },
@@ -115,13 +132,18 @@ async function handleFiles(list) {
     document.body.classList.add('busy');
     const scene = psd ? await importPsdFile(psd, setStatus) : await importPngFiles(files, setStatus);
     const settingsFile = files.find((f) => /\.escena\.json$/i.test(f.name));
+    S.source = { kind: 'import' };
+    S.builtinJson = null;
+    S.fullReady = null;
+    fullBadge.hidden = true;
     openScene(scene);
+    store.put('last', S.source).catch(() => {});
     if (settingsFile) applySettingsJson(JSON.parse(await settingsFile.text()));
     const extra = [];
     if (scene.skipped) extra.push(`salteé ${scene.skipped} capas ocultas`);
     if (scene.unplaced) extra.push(`${scene.unplaced} PNG sin posición (quedaron centrados)`);
     setStatus(`${scene.name}: ${scene.layers.length} capas${extra.length ? ` · ${extra.join(' · ')}` : ''}`);
-    store.saveSceneImages(scene).then(() => saveSettingsSoon()).catch((err) => console.warn('No pude guardar la escena', err));
+    store.saveSceneImages(scene).then(() => { saveSettingsSoon(); refreshArt(); }).catch((err) => console.warn('No pude guardar la escena', err));
   } catch (err) {
     console.error(err);
     setStatus(`No pude abrir eso: ${err.message || err}`);
@@ -147,6 +169,137 @@ function openScene(scene, saved = null) {
   renderList();
   renderProps();
   resize();
+}
+
+/* ---------- arte disponible (dibujos incluidos) ---------- */
+const mb = (b) => `${Math.round(b / 1e6)} MB`;
+
+function artCard(item, small = false) {
+  const on = S.source?.kind === 'builtin' && S.source.id === item.id;
+  return el('button', {
+    type: 'button', class: `sc-art${on ? ' on' : ''}${small ? ' small' : ''}`, role: 'menuitem',
+    title: `Abrir “${item.nombre}” con sus capas y movimientos listos`,
+    onclick: () => { artMenu.hidden = true; openBuiltin(item.id); },
+  },
+  item.portada ? el('img', { src: `/escenas/${item.id}/${item.portada}`, alt: '' }) : el('span', { class: 'sc-art-ph' }, '🖼'),
+  el('span', { class: 'sc-art-txt' },
+    el('strong', {}, item.nombre),
+    el('span', {}, `${item.proporcion} · ${item.detalle || ''}`),
+    el('span', { class: 'sc-art-size' }, on ? 'Abierto ahora' : `Baja ~${mb(item.prevBytes || 0)} para empezar`)));
+}
+
+async function refreshArt() {
+  const hasImport = !!(await store.get('scene').catch(() => null))?.layers?.length;
+  const lastImport = hasImport ? await store.get('scene') : null;
+  artMenu.textContent = '';
+  emptyArt.textContent = '';
+  artMenu.append(el('p', { class: 'sc-menu-title' }, 'Arte disponible'));
+  for (const it of S.builtins) { artMenu.append(artCard(it, true)); emptyArt.append(artCard(it)); }
+  if (!S.builtins.length) artMenu.append(el('p', { class: 'sc-hint' }, 'No pude cargar la lista. Revisá la conexión.'));
+  if (lastImport) {
+    const reopen = () => { artMenu.hidden = true; openLastImport(); };
+    artMenu.append(el('button', { type: 'button', class: 'sc-art small', role: 'menuitem', title: 'Vuelve a abrir lo último que importaste, con tus cambios', onclick: reopen },
+      el('span', { class: 'sc-art-ph' }, '📂'),
+      el('span', { class: 'sc-art-txt' }, el('strong', {}, lastImport.name), el('span', {}, `Tu última importación · ${lastImport.layers.length} capas`))));
+  }
+  artMenu.append(el('label', { class: 'sc-art small', title: 'Un PSD con capas, o varios PNG sueltos' },
+    el('span', { class: 'sc-art-ph' }, '⬆'),
+    el('span', { class: 'sc-art-txt' }, el('strong', {}, 'Importar PSD o PNG…'), el('span', {}, 'Queda sólo en tu compu')),
+    el('input', { type: 'file', multiple: true, accept: '.psd,.png,.webp,.json', hidden: true, onchange: (e) => { artMenu.hidden = true; handleFiles(e.target.files); } })));
+}
+
+function toggleArtMenu(force) {
+  artMenu.hidden = force != null ? !force : !artMenu.hidden;
+  if (!artMenu.hidden) refreshArt();
+}
+document.addEventListener('click', (e) => { if (!artMenu.hidden && !e.target.closest('.sc-menu-wrap')) artMenu.hidden = true; });
+
+function showLoading(text, p) {
+  empty.hidden = false;
+  empty.classList.add('is-loading');
+  loadBox.hidden = false;
+  $('.sc-loading-text', loadBox).textContent = text;
+  $('.sc-bar i', loadBox).style.width = `${Math.round(p * 100)}%`;
+}
+function hideLoading() {
+  empty.classList.remove('is-loading');
+  loadBox.hidden = true;
+}
+
+let openToken = 0;
+async function openBuiltin(id) {
+  const item = S.builtins.find((b) => b.id === id) || { id, nombre: id };
+  const token = ++openToken;
+  const hadScene = !!S.scene;
+  try {
+    if (!hadScene) showLoading(`Cargando “${item.nombre}”… 0%`, 0);
+    setStatus(`Cargando “${item.nombre}”…`);
+    const res = await loadBuiltin(id, {
+      onPreview: (p) => {
+        if (token !== openToken) return;
+        if (!hadScene) showLoading(`Cargando “${item.nombre}”… ${Math.round(p * 100)}%`, p);
+        else setStatus(`Cargando “${item.nombre}”… ${Math.round(p * 100)}%`);
+      },
+      onFull: (p) => {
+        if (token !== openToken) return;
+        fullBadge.textContent = `Calidad completa ${Math.round(p * 100)}%`;
+      },
+    });
+    if (token !== openToken) return;
+    S.source = { kind: 'builtin', id };
+    S.builtinJson = res.json;
+    const saved = await store.get(settingsKey()).catch(() => null);
+    openScene(res.scene, saved || res.json.settings);
+    hideLoading();
+    store.put('last', S.source).catch(() => {});
+    setStatus(`${item.nombre}: ${res.scene.layers.length} capas${saved ? ' · con tus cambios' : ''}`);
+    fullBadge.hidden = false;
+    fullBadge.textContent = 'Calidad completa 0%';
+    S.fullReady = res.full.then(() => {
+      if (token !== openToken) return;
+      fullBadge.hidden = true;
+      S.dirty = true;
+      renderList();
+    });
+    S.fullReady.catch(() => { fullBadge.textContent = 'No pude bajar la calidad completa'; });
+    refreshArt();
+  } catch (err) {
+    console.error(err);
+    hideLoading();
+    empty.hidden = !!S.scene;
+    setStatus(`No pude abrir “${item.nombre}”: ${err.message || err}`);
+  }
+}
+
+async function openLastImport() {
+  const token = ++openToken;
+  setStatus('Abriendo tu última importación…');
+  const scene = await store.loadSceneImages();
+  if (!scene || token !== openToken) return false;
+  const saved = await store.get('settings');
+  S.source = { kind: 'import' };
+  S.builtinJson = null;
+  S.fullReady = null;
+  fullBadge.hidden = true;
+  openScene(scene, saved && saved.escena?.nombre === scene.name ? saved : null);
+  store.put('last', S.source).catch(() => {});
+  setStatus(`Recuperé “${scene.name}” (${scene.layers.length} capas) de la última vez`);
+  refreshArt();
+  return true;
+}
+
+function resetBuiltin() {
+  if (!S.builtinJson) return;
+  const json = S.builtinJson;
+  const settings = makeSceneSettings(S.scene);
+  settings.layers = S.scene.layers.map((l, i) => makeLayerSettings(l, S.scene, i));
+  S.settings = settings;
+  applySettingsJson(json.settings, true);
+  S.editPose = null;
+  S.sel = -1;
+  resize();
+  changed(true);
+  flash('Volvió a como venía original');
 }
 
 /* ---------- ajustes: guardar / cargar ---------- */
@@ -182,9 +335,13 @@ function applySettingsJson(json, quiet = false) {
 }
 
 let saveTimer = 0;
+/* Lo que cambiás en un dibujo incluido se guarda aparte: tu importación nunca lo pisa (ni al revés). */
+function settingsKey() {
+  return S.source?.kind === 'builtin' ? `settings:builtin:${S.source.id}` : 'settings';
+}
 function saveSettingsSoon() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { if (S.scene) store.put('settings', settingsJson()).catch(() => {}); }, 600);
+  saveTimer = setTimeout(() => { if (S.scene) store.put(settingsKey(), settingsJson()).catch(() => {}); }, 600);
 }
 
 function download(blob, name) {
@@ -452,6 +609,7 @@ function renderSceneProps() {
   } });
   props.append(section('Guardar',
     el('p', { class: 'sc-hint' }, 'Se guarda solo en este navegador. Para llevarlo a otra compu, bajá los ajustes.'),
+    S.source?.kind === 'builtin' ? btn('↺ Volver al original', 'Deshace tus cambios en este dibujo y vuelve a los movimientos con los que viene', resetBuiltin) : null,
     row(btn('Bajar ajustes', 'Descarga un .escena.json con todos los movimientos', () => {
       download(new Blob([JSON.stringify(settingsJson(), null, 1)], { type: 'application/json' }), `${S.scene.name}.escena.json`);
     }), el('label', { class: 'btn', title: 'Carga un .escena.json guardado antes' }, 'Cargar ajustes', loadInput))));
@@ -497,6 +655,14 @@ async function startExport() {
   S.exporting = true;
   S.cancel = false;
   const wasPlaying = S.playing;
+  if (S.fullReady && S.scene.layers.some((l) => l.preview)) {
+    progress.hidden = false;
+    $('.sc-progress-title', progress).textContent = 'Preparando las capas…';
+    $('.sc-progress-text', progress).textContent = 'Termino de bajar el dibujo en calidad completa y arranco.';
+    $('.sc-progress-dl', progress).hidden = true;
+    $('.sc-progress-close', progress).hidden = true;
+    try { await S.fullReady; } catch { /* se exporta con lo que haya */ }
+  }
   setPlaying(false);
   S.editPose = null;
   rebake();
@@ -755,16 +921,19 @@ window.addEventListener('keydown', (e) => {
 /* ---------- arranque: recuperar la última escena ---------- */
 renderProps();
 setTool('capa');
+/* Nunca arranca vacío: abre lo último que usaste, o el primer dibujo incluido. */
 (async () => {
-  try {
-    const scene = await store.loadSceneImages();
-    if (!scene) return;
-    const saved = await store.get('settings');
-    openScene(scene, saved && saved.escena?.nombre === scene.name ? saved : null);
-    setStatus(`Recuperé “${scene.name}” (${scene.layers.length} capas) de la última vez`);
-  } catch (err) {
-    console.warn('Sin escena guardada', err);
+  showLoading('Abriendo tu escena…', 0);
+  try { S.builtins = await listBuiltins(); } catch (err) { console.warn(err); S.builtins = []; }
+  refreshArt();
+  const last = await store.get('last').catch(() => null);
+  if (last?.kind === 'import') {
+    try { if (await openLastImport()) { hideLoading(); return; } } catch (err) { console.warn('Sin escena guardada', err); }
   }
+  const id = (last?.kind === 'builtin' && S.builtins.some((b) => b.id === last.id)) ? last.id : S.builtins[0]?.id;
+  if (id) { openBuiltin(id); return; }
+  hideLoading();
+  setStatus('Importá tu ilustración por capas');
 })();
 
-window.__escena = { S, handleFiles, startExport, setTab, select, applySettingsJson, settingsJson };
+window.__escena = { S, handleFiles, startExport, setTab, select, applySettingsJson, settingsJson, openBuiltin, openLastImport, resetBuiltin };

@@ -146,3 +146,28 @@ input[type=range] { accent-color: var(--accent); }
   .sc-layout { grid-template-columns: 1fr; grid-template-rows: 45vh auto auto; overflow: auto; }
   .sc-stage { order: -1; }
 }
+
+/* ---------- arte disponible ---------- */
+.sc-menu-wrap { position: relative; }
+.sc-art-btn { border-color: rgba(73, 198, 214, .55); }
+.sc-art-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: 320px; padding: 10px; display: grid; gap: 6px;
+  background: rgba(19, 26, 31, .98); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 18px 50px rgba(0, 0, 0, .45); }
+.sc-art-menu[hidden] { display: none; }
+.sc-menu-title { margin: 2px 4px 4px; color: var(--accent); font-size: .75rem; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; }
+.sc-art { display: flex; gap: 12px; align-items: center; text-align: left; width: 100%; padding: 10px; border-radius: 12px; cursor: pointer; }
+.sc-art img { width: 72px; height: 108px; object-fit: cover; border-radius: 8px; flex: none; }
+.sc-art.small img { width: 40px; height: 60px; border-radius: 6px; }
+.sc-art-ph { width: 40px; height: 40px; display: grid; place-items: center; font-size: 1.2rem; flex: none; }
+.sc-art-txt { display: grid; gap: 3px; min-width: 0; }
+.sc-art-txt span { color: var(--muted); font-size: .82rem; }
+.sc-art .sc-art-size { color: #9fd9d0; font-size: .78rem; }
+.sc-art.on { border-color: var(--accent); background: rgba(73, 198, 214, .1); }
+.sc-art-grid { display: grid; gap: 10px; margin-bottom: 6px; }
+.sc-art-grid .sc-art { padding: 12px; font-size: 1.05rem; }
+.sc-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
+.sc-loading { margin: 6px 0 14px; }
+.sc-loading[hidden] { display: none; }
+.sc-loading-text { margin: 0 0 8px; color: #c7dedb; }
+.sc-empty.is-loading .lead, .sc-empty.is-loading .sc-art-grid, .sc-empty.is-loading .sc-small { display: none; }
+.sc-full-badge { margin-left: 10px; font-size: .78rem; color: var(--muted); white-space: nowrap; }
+.sc-full-badge[hidden] { display: none; }

@@ -8,7 +8,7 @@ const TAU = Math.PI * 2;
 function levelFor(layer, scale) {
   layer._levels = layer._levels || [layer.image];
   let lv = 0;
-  while (lv < 5 && scale * (layer.image.width / layer.w) <= 0.5 ** (lv + 1) * 1.05) lv += 1;
+  while (lv < 5 && scale * (layer.w / layer.image.width) <= 0.5 ** (lv + 1) * 1.05) lv += 1;
   for (let k = 1; k <= lv; k += 1) {
     if (layer._levels[k]) continue;
     const prev = layer._levels[k - 1];
