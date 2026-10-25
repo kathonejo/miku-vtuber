@@ -699,3 +699,11 @@ body.stream #btn-exit-stream { display: inline-flex; }
 
 .eyeline-row { display: flex; gap: 6px; align-items: center; }
 .eyeline-row select { flex: 1; }
+
+#btn-escena {
+  display: inline-flex; align-items: center; gap: 6px; text-decoration: none; color: var(--text);
+  border: 1px solid rgba(255, 227, 163, 0.45); background: rgba(255, 227, 163, 0.08);
+  border-radius: 12px; padding: 8px 12px; white-space: nowrap; font-weight: 600;
+  transition: border-color 0.15s, background 0.15s;
+}
+#btn-escena:hover { border-color: rgba(255, 227, 163, 0.85); background: rgba(255, 227, 163, 0.14); }
