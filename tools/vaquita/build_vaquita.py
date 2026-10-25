@@ -84,6 +84,11 @@ OPEN_ONLY = [n for n in ORDER if 'cerrado' not in n]
 allm = over(*[IMG[n] for n in ORDER])[..., 3] > 0.02
 ys, xs = np.where(allm)
 BX0, BY0, BX1, BY1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+# Encuadre fijo del armado v3: los PSD corregidos (v4...) limpian manchitas del borde y eso
+# movería el encuadre y la escala; así las coordenadas del rig (y los ajustes guardados) no cambian.
+FRAME_PIN = (132, 389, 2185, 2652)
+if FRAME_PIN:
+    BX0, BY0, BX1, BY1 = FRAME_PIN
 RIG = 600
 SCALE = 546.0 / (BY1 - BY0)          # rig por píxel del PSD
 OX = (RIG - (BX1 - BX0) * SCALE) / 2 - BX0 * SCALE
@@ -294,6 +299,12 @@ manifest = {
 # no imponen su orden, padres ni pivotes
 manifest['build'] = hashlib.sha1(json.dumps(
     [[p['id'], p['parent'], p['pivot'], p.get('x'), p.get('y'), p.get('w'), p.get('h')] for p in parts]).encode()).hexdigest()[:12]
+# mismo armado que v3 (mismas piezas, padres y orden; sólo cambiaron píxeles): se conserva su
+# huella para no descartar los ajustes guardados de la usuaria
+BUILD_PIN = ('dae8e8cc505c', '5711e0c5b937')
+_struct = hashlib.sha1(json.dumps([[p['id'], p['parent']] for p in parts]).encode()).hexdigest()[:12]
+if BUILD_PIN and _struct == BUILD_PIN[1]:
+    manifest['build'] = BUILD_PIN[0]
 # huella del dibujo: cambia cuando cambian los píxeles aunque las piezas sean las mismas
 # (no toca 'build', así los ajustes guardados de la usuaria se conservan)
 _h = hashlib.sha1()

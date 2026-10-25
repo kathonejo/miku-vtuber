@@ -54,13 +54,13 @@
   },
   {
    "file": "/vaquita/tail_color.png",
-   "x": 288.78,
-   "y": 22.35,
-   "w": 226.8,
-   "h": 227.28,
+   "x": 290.23,
+   "y": 25.48,
+   "w": 225.35,
+   "h": 224.14,
    "px": [
-    680,
-    682
+    676,
+    672
    ],
    "id": "tail_color",
    "role": "tail",
@@ -106,19 +106,19 @@
   {
    "file": "/vaquita/leg_p3_color.png",
    "x": 308.81,
-   "y": 361.82,
+   "y": 366.4,
    "w": 127.87,
-   "h": 128.36,
+   "h": 121.6,
    "px": [
     384,
-    385
+    365
    ],
    "id": "leg_p3_color",
    "role": "limb",
    "parent": "body",
    "pivot": [
-    378.0,
-    380.03
+    360.69,
+    382.6
    ],
    "psdName": [
     "p3 color"
@@ -147,8 +147,8 @@
    "role": "static",
    "parent": "leg_p3_color",
    "pivot": [
-    378.0,
-    380.03
+    360.69,
+    382.6
    ],
    "psdName": [
     "p3 l"
@@ -156,20 +156,20 @@
   },
   {
    "file": "/vaquita/leg_p_der_color.png",
-   "x": 49.68,
-   "y": 284.61,
-   "w": 100.61,
-   "h": 143.8,
+   "x": 52.33,
+   "y": 287.75,
+   "w": 97.96,
+   "h": 140.66,
    "px": [
-    302,
-    431
+    294,
+    422
    ],
    "id": "leg_p_der_color",
    "role": "limb",
    "parent": "body",
    "pivot": [
-    102.2,
-    303.56
+    92.32,
+    309.81
    ],
    "psdName": [
     "p der color"
@@ -198,8 +198,8 @@
    "role": "static",
    "parent": "leg_p_der_color",
    "pivot": [
-    102.2,
-    303.56
+    92.32,
+    309.81
    ],
    "psdName": [
     "p der"
@@ -339,12 +339,12 @@
   },
   {
    "file": "/vaquita/head_color.png",
-   "x": 59.09,
+   "x": 64.88,
    "y": 72.29,
-   "w": 165.27,
+   "w": 159.48,
    "h": 249.96,
    "px": [
-    496,
+    478,
     750
    ],
    "id": "head_color",
@@ -421,20 +421,20 @@
   },
   {
    "file": "/vaquita/leg_p4_color.png",
-   "x": 420.76,
+   "x": 421.0,
    "y": 336.24,
-   "w": 127.39,
+   "w": 127.15,
    "h": 108.81,
    "px": [
-    382,
+    381,
     326
    ],
    "id": "leg_p4_color",
    "role": "limb",
    "parent": "body",
    "pivot": [
-    453.31,
-    348.06
+    455.02,
+    347.99
    ],
    "psdName": [
     "p4 color"
@@ -463,8 +463,8 @@
    "role": "static",
    "parent": "leg_p4_color",
    "pivot": [
-    453.31,
-    348.06
+    455.02,
+    347.99
    ],
    "psdName": [
     "p4 l"
@@ -746,5 +746,5 @@
   "ear_r"
  ],
  "build": "dae8e8cc505c",
- "art": "cb10a53f6364"
+ "art": "0d778749b225"
 }
