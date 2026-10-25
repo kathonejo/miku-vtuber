@@ -1,8 +1,8 @@
 /** Ensambla un manifiesto con el mismo esquema que rig.json, imágenes en memoria. */
 
 import { nearestPoint } from './geom.js';
-import { MOUTH_SHAPES, drawClosedEye, drawMouth, placeMouth } from './gen.js';
-import { extractMouth, lashColor, medianSkin } from './mouthfind.js';
+import { medianSkin } from './mouthfind.js';
+import { nameGroup, pairInfo } from './names.js';
 import { paintPixels } from './raster.js';
 
 const r2 = (n) => Math.round((+n || 0) * 100) / 100;
@@ -55,6 +55,77 @@ function toRig(meta, x, y) {
   return [(x - meta.offset[0]) / meta.scale, (y - meta.offset[1]) / meta.scale];
 }
 
+const PAIRABLE = new Set(['leg', 'tail', 'static', 'acc_head', 'acc_body', 'hair', 'hair_back', 'body', 'face', 'neck', 'bangs', 'human_ears', 'ear_l', 'ear_r']);
+
+/** Une dos capas vecinas (línea + color) en una sola pieza, sin redibujar. */
+function mergePair(a, b) {
+  const x0 = Math.min(a.x, b.x);
+  const y0 = Math.min(a.y, b.y);
+  const x1 = Math.max(a.x + a.w, b.x + b.w);
+  const y1 = Math.max(a.y + a.h, b.y + b.h);
+  const k = a.canvas.width / Math.max(1e-6, a.w);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round((x1 - x0) * k));
+  canvas.height = Math.max(1, Math.round((y1 - y0) * k));
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  for (const layer of [a, b]) {
+    ctx.drawImage(layer.canvas, (layer.x - x0) * k, (layer.y - y0) * k, layer.w * k, layer.h * k);
+  }
+  return {
+    ...a,
+    name: `${a.name} + ${b.name}`,
+    canvas,
+    x: x0,
+    y: y0,
+    w: x1 - x0,
+    h: y1 - y0,
+    hidden: a.hidden && b.hidden,
+    merged: [a, b],
+  };
+}
+
+/**
+ * Pares línea/color por nombre ('p der' + 'p der color', 'p4 l' + 'p4 color').
+ * Vecinos en el orden del archivo: una pieza. Separados: la línea sigue al color.
+ */
+function pairLayers(layers) {
+  for (const layer of layers) layer.pairOf = null;
+  const out = [];
+  for (let i = 0; i < layers.length; i += 1) {
+    const a = layers[i];
+    const b = layers[i + 1];
+    if (b && PAIRABLE.has(a.role) && a.role === b.role) {
+      const pa = pairInfo(a.name);
+      const pb = pairInfo(b.name);
+      if (pa.key && pa.key === pb.key && pa.color !== pb.color) {
+        out.push(mergePair(a, b));
+        i += 1;
+        continue;
+      }
+    }
+    out.push(a);
+  }
+  const leaders = new Map();
+  for (const layer of out) {
+    if (!PAIRABLE.has(layer.role) || layer.merged) continue;
+    const info = pairInfo(layer.name);
+    const key = `${layer.role}|${info.key}`;
+    if (!leaders.has(key)) leaders.set(key, layer);
+    else layer.pairOf = leaders.get(key);
+  }
+  return out;
+}
+
+/** A quién sigue una pieza suelta: por nombre primero, por altura si el nombre no dice. */
+function groupParent(layer) {
+  const group = nameGroup(layer.name);
+  if (group === 'head') return 'head';
+  if (group === 'body' || group === 'leg' || group === 'tail' || group === 'neck') return 'body';
+  return null;
+}
+
 export function composeManifest(mapping) {
   const meta = mapping.meta;
   const factor = Math.min(1, meta.pxPerUnit / meta.scale);
@@ -81,6 +152,7 @@ export function composeManifest(mapping) {
   let mouthSlot = false;
   const hairN = { l: 0, r: 0 };
   let accN = 0;
+  let legN = 0;
 
   const putMouthSlot = () => {
     if (mouthSlot) return;
@@ -88,21 +160,30 @@ export function composeManifest(mapping) {
     mouthSlot = true;
   };
 
-  for (const layer of layers) {
-    ensureCanvas(layer, factor);
+  for (const layer of layers) ensureCanvas(layer, factor);
+  const pieces = pairLayers(layers);
+  const partOf = new Map();
+  const rings = [];
+
+  for (const layer of pieces) {
     const eye = eyeInfo(layer.role);
     const arm = armInfo(layer.role);
     if (eye) {
       const slot = eyes[eye.side];
-      const entry = stamp(`eye_${eye.side}_${eye.part}${eye.part === 'closed' ? '' : `_${eye.style}`}`, layer.canvas, layer.x, layer.y, layer.w, layer.h, { psdName: layer.name });
+      const key = `eye_${eye.side}_${eye.part}${eye.part === 'closed' ? '' : `_${eye.style}`}`;
+      const prev = eye.part === 'closed' ? slot.closed : slot.styles[eye.style]?.[eye.part];
+      // dos capas para la misma pieza del mismo ojo: se juntan, ninguna pisa a la otra
+      const src = prev ? mergePair({ ...prev, canvas: prev.image, name: prev.psdName }, layer) : layer;
+      const entry = stamp(key, src.canvas, src.x, src.y, src.w, src.h, { psdName: src.name });
       if (eye.part === 'closed') slot.closed = entry;
       else {
         slot.styles[eye.style] = slot.styles[eye.style] || {};
         slot.styles[eye.style][eye.part] = entry;
       }
-      if (eye.part === 'full') slot.center = [r2(layer.x + layer.w / 2), r2(layer.y + layer.h / 2)];
+      if (eye.part === 'full') slot.center = [r2(entry.x + entry.w / 2), r2(entry.y + entry.h / 2)];
       if (!parts.some((part) => part.id === `eye_${eye.side}`)) {
-        parts.push({ id: `eye_${eye.side}`, role: 'eye', parent: 'head', side: eye.side, pivot: slot.center.slice() });
+        // la cabeza gira como una sola pieza: los ojos no se corren respecto del contorno
+        parts.push({ id: `eye_${eye.side}`, role: 'eye', parent: 'head', side: eye.side, pivot: slot.center.slice(), parallax: [0, 0] });
         used.add(`eye_${eye.side}`);
       }
       continue;
@@ -132,6 +213,7 @@ export function composeManifest(mapping) {
     let id;
     let role = 'static';
     let parent = 'head';
+    const named = groupParent(layer);
     if (layer.role === 'hair_back') { id = uniqueId(used, 'hair_back'); role = 'hair'; }
     else if (layer.role === 'hair') {
       const side = layer.side === 'r' ? 'r' : 'l';
@@ -141,6 +223,17 @@ export function composeManifest(mapping) {
     } else if (layer.role === 'ear_l' || layer.role === 'ear_r') {
       id = uniqueId(used, layer.role);
       role = 'ear';
+    } else if (layer.role === 'tail') {
+      id = uniqueId(used, 'tail');
+      role = 'tail';
+      parent = 'body';
+    } else if (layer.role === 'leg') {
+      id = uniqueId(used, `leg_${++legN}`);
+      role = 'limb';
+      parent = 'body';
+    } else if (layer.role === 'ring_l' || layer.role === 'ring_r') {
+      id = uniqueId(used, `eye_ring_${layer.role.slice(5)}`);
+      role = 'static';
     } else if (layer.role === 'face') { id = uniqueId(used, 'face'); role = 'static'; }
     else if (layer.role === 'bangs') { id = uniqueId(used, 'bangs'); }
     else if (layer.role === 'human_ears') { id = uniqueId(used, 'human_ears'); }
@@ -150,15 +243,27 @@ export function composeManifest(mapping) {
     else if (layer.role === 'acc_body') { id = uniqueId(used, `acc_${++accN}`); parent = 'body'; }
     else {
       id = uniqueId(used, `part_${++accN}`);
-      parent = layer.y + layer.h / 2 > 360 ? 'body' : 'head';
+      parent = named || (layer.y + layer.h / 2 > 360 ? 'body' : 'head');
     }
-    const pivot = layer.role === 'face' || layer.role === 'bangs' || layer.role === 'human_ears'
-      ? neckPoint.slice()
-      : (layer.pivot || [r2(layer.x + layer.w / 2), r2(layer.y + layer.h / 2)]);
-    const part = stamp(id, layer.canvas, layer.x, layer.y, layer.w, layer.h, {
-      psdName: layer.name, parent, role, pivot, visibleInPsd: !layer.hidden, id,
-    });
+    // la línea de un par separado sigue a su color (mismo pivote, se mueven juntas)
+    const leader = layer.pairOf ? partOf.get(layer.pairOf) : null;
+    if (leader) {
+      parent = leader.id;
+      if (role === 'tail' || role === 'limb' || role === 'hair') role = 'static';
+    }
+    const pivot = leader
+      ? leader.pivot.slice()
+      : layer.role === 'face' || layer.role === 'bangs' || layer.role === 'human_ears'
+        ? neckPoint.slice()
+        : (layer.pivot || [r2(layer.x + layer.w / 2), r2(layer.y + layer.h / 2)]);
+    const extra = { psdName: layer.name, parent, role, pivot, visibleInPsd: !layer.hidden, id };
+    if (parent === 'head' && role === 'static') extra.parallax = [0, 0];
+    if (role === 'tail') extra.motion = { sway: 4, speed: 0.35, stiffness: 55, damping: 5, gravity: 0, follow: 1, limit: 12 };
+    if (role === 'limb') extra.motion = { sway: 0, speed: 0.3, stiffness: 90, damping: 12, gravity: 0, follow: 0, limit: 6 };
+    const part = stamp(id, layer.canvas, layer.x, layer.y, layer.w, layer.h, extra);
     parts.push(part);
+    partOf.set(layer, part);
+    if (layer.role === 'ring_l' || layer.role === 'ring_r') rings.push({ part, side: layer.role.slice(5) });
     if (layer.role === 'face' && !facePart) {
       facePart = part;
       putMouthSlot();
@@ -168,51 +273,18 @@ export function composeManifest(mapping) {
   }
   if (!mouthSlot) putMouthSlot();
 
+  // nada inventado: sin capas de boca, la boca queda como está dibujada en la cara
   const faceLayer = mapping.layers.find((layer) => layer.role === 'face');
-  const hasBoca = mapping.layers.some((layer) => layer.role.startsWith('mouth_'));
-  let skin = faceLayer ? medianSkin(faceLayer.pixels) : [247, 186, 170];
-  if (faceLayer && !hasBoca && !mouths.neutral) {
-    const copy = faceLayer.pixels.slice();
-    const cut = extractMouth(copy, faceLayer.width, faceLayer.height);
-    if (cut) {
-      const filled = paintPixels(copy, faceLayer.width, faceLayer.height, factor);
-      if (facePart) facePart.image = filled;
-      facePart && (facePart.mouthErased = true);
-      const k = meta.scale;
-      const x = faceLayer.x + cut.box.x0 / k;
-      const y = faceLayer.y + cut.box.y0 / k;
-      const w = cut.mw / k;
-      const h = cut.mh / k;
-      mouths.neutral = stamp('mouth_neutral', paintPixels(cut.mouth, cut.mw, cut.mh, factor), x, y, w, h, { psdName: 'boca' });
-      skin = cut.skin || skin;
-      mapping._cut = cut;
-    }
-  }
-
-  const neutral = mouths.neutral;
+  const skin = faceLayer ? medianSkin(faceLayer.pixels) : [247, 186, 170];
+  const neutral = mouths.neutral || Object.values(mouths)[0] || null;
   const face = facePart;
   let center;
-  let foundW;
-  if (neutral) {
-    center = [neutral.x + neutral.w / 2, neutral.y + neutral.h / 2];
-    foundW = neutral.w;
-  } else if (face) {
-    center = [face.x + face.w / 2, face.y + face.h * 0.62];
-    foundW = face.w * 0.16;
-  } else {
-    center = [300, 340];
-    foundW = 36;
-  }
-  const lashSrc = mapping.layers.find((layer) => layer.role === 'eye_l_A' || layer.role === 'eye_r_A' || /^eye_[lr]_/.test(layer.role));
-  const lash = lashSrc ? lashColor(lashSrc.pixels) : [10, 74, 132];
-  const scale = Math.max(0.45, foundW / 40);
-  for (const key of ['neutral', 'small', 'a', 'o', 'smile']) {
-    if (mouths[key]) continue;
-    const drawn = drawMouth(MOUTH_SHAPES[key], scale, lash, ppu);
-    const placed = placeMouth(drawn, center, ppu);
-    if (placed) mouths[key] = stamp(`mouth_${key}`, placed.canvas, placed.x, placed.y, placed.w, placed.h, { generated: true });
-  }
+  if (neutral) center = [neutral.x + neutral.w / 2, neutral.y + neutral.h / 2];
+  else if (face) center = [face.x + face.w / 2, face.y + face.h * 0.62];
+  else center = [300, 340];
 
+  // sin capas de ojo cerrado: parpadeo aplastando el ojo abierto (sin dibujar líneas nuevas)
+  let squash = false;
   for (const side of ['l', 'r']) {
     const slot = eyes[side];
     const full = slot.styles.A?.full || slot.styles.B?.full || Object.values(slot.styles)[0]?.full;
@@ -220,15 +292,16 @@ export function composeManifest(mapping) {
     slot.center = [r2(full.x + full.w / 2), r2(full.y + full.h / 2)];
     const part = parts.find((item) => item.id === `eye_${side}`);
     if (part) part.pivot = slot.center.slice();
-    if (!slot.closed) {
-      const closed = drawClosedEye({ x: full.x, y: full.y, w: full.w, h: full.h }, lash, ppu, side === 'l');
-      if (closed) {
-        slot.closed = stamp(`eye_${side}_closed`, closed.canvas, closed.x, closed.y, closed.w, closed.h, { parent: 'head', role: 'eye', generated: true });
-      }
-    }
+    if (!slot.closed) squash = true;
     extras[`eye_${side}_closed`] = slot.closed;
   }
-
+  // el aro del ojo va con su ojo: mismo pivote, mismo corrimiento al girar, se aplasta con él
+  for (const { part, side } of rings) {
+    const eyePart = parts.find((item) => item.id === `eye_${side}`);
+    part.blinkWith = side;
+    part.pivot = eyes[side].center.slice();
+    part.parallax = eyePart?.parallax ? eyePart.parallax.slice() : [0, 0];
+  }
   const shoulders = {
     l: [r2(shoulderRig.l[0]), r2(shoulderRig.l[1])],
     r: [r2(shoulderRig.r[0]), r2(shoulderRig.r[1])],
@@ -275,6 +348,7 @@ export function composeManifest(mapping) {
     },
     bounds: { x0: r2(x0), y0: r2(y0), x1: r2(x1), y1: r2(y1) },
     drawOrder: parts.map((part) => part.id),
-    blink: { frames: ['open', 'closed'], note: 'open = estilo de ojo; closed = capa o arco generado' },
+    squashBlink: squash,
+    blink: { frames: ['open', 'closed'], note: squash ? 'sin capas de ojo cerrado: el ojo abierto se aplasta' : 'open = estilo de ojo; closed = capa del PSD' },
   };
 }

@@ -5,6 +5,7 @@ import { attachRigLinks } from './riglinks.js';
 import {
   clearOverrides,
   emptyRig,
+  hasMotion,
   movePart,
   normalizeStore,
   partTitle,
@@ -114,6 +115,12 @@ export function createRigEditor(doc, puppet, toast) {
     order.className = 'actions';
     order.innerHTML = '<button type="button" id="rig-up">Subir</button><button type="button" id="rig-down">Bajar</button>';
     body.appendChild(order);
+    // opción del personaje: sin capas de ojo cerrado, el ojo abierto (y su aro) se aplasta
+    const squash = doc.createElement('label');
+    squash.className = 'color-row';
+    squash.title = 'Para personajes sin capas de ojo cerrado: el ojo se achata y se oculta al parpadear.';
+    squash.innerHTML = 'Parpadeo aplastando ojos<input id="rig-squash" type="checkbox" />';
+    body.appendChild(squash);
     const motion = doc.createElement('div');
     motion.id = 'rig-motion';
     const title = doc.createElement('h3');
@@ -150,6 +157,12 @@ export function createRigEditor(doc, puppet, toast) {
       return;
     }
     if (event.target?.id === 'rig-visible') set(selected, { visible: event.target.checked });
+    if (event.target?.id === 'rig-squash' && event.type === 'change') {
+      const next = store();
+      next.blink = { squash: event.target.checked };
+      commit(next);
+      sync();
+    }
     if (event.target?.id === 'rig-part') select(event.target.value);
   }
 
@@ -241,8 +254,10 @@ export function createRigEditor(doc, puppet, toast) {
     }
     const box = body.querySelector('#rig-visible');
     if (box) box.checked = rig.visible !== false;
+    const squash = body.querySelector('#rig-squash');
+    if (squash) squash.checked = puppet.getManifest()?.squashBlink === true;
     const motion = body.querySelector('#rig-motion');
-    if (motion) motion.hidden = !(item.role === 'hair' || item.role === 'ear');
+    if (motion) motion.hidden = !hasMotion(item);
     const preview = body.querySelector('#rig-preview');
     if (preview) preview.setAttribute('aria-pressed', String(previewOn));
     puppet.setHighlight(opened ? item.id : null);

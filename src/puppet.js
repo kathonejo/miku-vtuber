@@ -7,6 +7,8 @@ import { resolveChain } from './rigchain.js';
 import {
   applyOverrides as applyRigData,
   captureBase,
+  currentRigCharacter,
+  hasMotion,
   loadOverrides,
   restoreBase,
   stampPart,
@@ -18,6 +20,10 @@ import { createEyeGate, createMouthGate, normalizeSwap } from './swapface.js';
 const MAX_ROLL = (10 * Math.PI) / 180;
 const MAX_LEAN = (4 * Math.PI) / 180;
 const EYE_FADE = 0.04;
+// parpadeo aplastando: se cierra en ~50 ms y abre en ~80 ms; al 10 % de alto se oculta
+const SQUASH_CLOSE = 0.05;
+const SQUASH_OPEN = 0.08;
+const SQUASH_MIN = 0.1;
 const MOUTH_FADE = 0.06;
 
 /** Parallax inside the head, in rig units, multiplied by normalized yaw/pitch. */
@@ -155,6 +161,8 @@ function normalizeManifest(json) {
   m.id = typeof json.id === 'string' ? json.id : null;
   // personajes por recortes: boca y ojos cambian de dibujo de golpe (sin fundido)
   m.swap = json.swap ? normalizeSwap(json.swap) : null;
+  // sin capas de ojo cerrado: el ojo abierto se aplasta en vez de cambiar de dibujo
+  m.squashBlink = json.squashBlink === true;
   const p = json.pivots || {};
   m.pivots.neck = xy(p.neck, m.pivots.neck);
   m.pivots.feet = xy(p.feet, m.pivots.feet);
@@ -996,6 +1004,9 @@ export function createPuppet(canvas) {
       eye_l: { id: 'open', prev: 'open', fade: 1 },
       eye_r: { id: 'open', prev: 'open', fade: 1 },
     },
+    squash: { eye_l: 0, eye_r: 0 },
+    squashDebug: null,
+    prevBodyY: null,
     view: {
       yaw: 0,
       pitch: 0,
@@ -1053,7 +1064,7 @@ export function createPuppet(canvas) {
   function initSprings() {
     const keep = new Set();
     for (const part of state.manifest.parts) {
-      if (part.role !== 'ear' && part.role !== 'hair') continue;
+      if (!hasMotion(part)) continue;
       keep.add(part.id);
       if (!partSprings[part.id]) {
         const rig = part.rig;
@@ -1115,6 +1126,34 @@ export function createPuppet(canvas) {
   const swapMouth = createMouthGate(() => state.manifest?.swap?.mouth || normalizeSwap({}).mouth);
   const swapEyes = createEyeGate(() => state.manifest?.swap?.eyes || normalizeSwap({}).eyes);
 
+  function hasClosed(side) {
+    return Boolean(state.manifest.eyes?.[side === 'eye_l' ? 'l' : 'r']?.closed);
+  }
+
+  /** El ojo de ese lado parpadea aplastándose (opción del personaje y sin capa de ojo cerrado). */
+  function squashes(side) {
+    return state.manifest.squashBlink === true && !hasClosed(side);
+  }
+
+  /** Ojo 'l' dibujado a la derecha del 'r' (nombres de la autora): las señales de la cámara van por pantalla. */
+  function eyesFlipped() {
+    const l = state.manifest.eyes?.l?.center;
+    const r = state.manifest.eyes?.r?.center;
+    const lx = Array.isArray(l) ? +l[0] : +l?.x;
+    const rx = Array.isArray(r) ? +r[0] : +r?.x;
+    return Number.isFinite(lx) && Number.isFinite(rx) && lx > rx;
+  }
+
+  /** Avance del aplastado (0 abierto, 1 cerrado), rápido y sin rebote. */
+  function stepSquash(dt) {
+    for (const side of ['eye_l', 'eye_r']) {
+      const want = squashes(side) && state.eye[side].id === 'closed' ? 1 : 0;
+      const cur = state.squash[side];
+      const rate = want > cur ? 1 / SQUASH_CLOSE : 1 / SQUASH_OPEN;
+      state.squash[side] = want > cur ? Math.min(want, cur + dt * rate) : Math.max(want, cur - dt * rate);
+    }
+  }
+
   /** Cambio duro de recortes: boca abierta/cerrada y ojos abiertos/cerrados. */
   function applySwapFace(dt, targets, settings, face, blinkL, blinkR) {
     const cfg = state.manifest.swap;
@@ -1136,11 +1175,13 @@ export function createPuppet(canvas) {
     }, dt);
     for (const side of ['eye_l', 'eye_r']) {
       const slot = state.eye[side];
+      // las señales van por posición en pantalla (ojo 'der' de la autora dibujado a la izquierda)
+      const left = (side === 'eye_l') !== eyesFlipped();
       let next;
-      if (gate) next = (side === 'eye_l' ? gate.closedL : gate.closedR) ? 'closed' : 'open';
-      else next = stepEyeOpen(slot.id, side === 'eye_l' ? blinkL : blinkR);
-      // sin dibujo de ojo cerrado, el ojo queda abierto (no se inventa un parpadeo)
-      if (next === 'closed' && !state.manifest.eyes?.[side === 'eye_l' ? 'l' : 'r']?.closed) next = 'open';
+      if (gate) next = (left ? gate.closedL : gate.closedR) ? 'closed' : 'open';
+      else next = stepEyeOpen(slot.id, left ? blinkL : blinkR);
+      // sin dibujo de ojo cerrado: se aplasta si está activado; si no, queda abierto (nada inventado)
+      if (next === 'closed' && !hasClosed(side) && !squashes(side)) next = 'open';
       slot.id = next;
       slot.prev = next;
       slot.fade = 1;
@@ -1236,9 +1277,12 @@ export function createPuppet(canvas) {
 
     const partRot = {};
     const pose = { yaw, rollRad, lean };
+    const bodyY = (bodySy - 1) * 2 + (state.view.jumpY || 0) * 0.01;
+    const kick = dt > 0 ? ((bodyY - (state.prevBodyY ?? bodyY)) / dt) * 0.6 : 0;
+    state.prevBodyY = bodyY;
     for (const part of state.manifest.parts) {
       const rig = part.rig;
-      if (!rig || (part.role !== 'hair' && part.role !== 'ear')) continue;
+      if (!rig || !hasMotion(part)) continue;
       let spr = partSprings[part.id];
       if (!spr) {
         spr = new Spring1D(rig.stiffness, rig.damping);
@@ -1253,6 +1297,8 @@ export function createPuppet(canvas) {
         const lim = (rig.limit || 7) * (Math.PI / 180);
         target = clamp(target + wiggle * (left ? 1 : -0.85), -lim, lim);
       }
+      // cola: el rebote del cuerpo y el salto la empujan (resorte con inercia)
+      if (part.role === 'tail' && dt > 0) spr.v += clamp(kick, -3, 3) * (rig.follow ?? 1);
       partRot[part.id] = spr.update(target, dt);
     }
 
@@ -1291,11 +1337,35 @@ export function createPuppet(canvas) {
     }
     state.mouthFade = Math.min(1, state.mouthFade + dt / MOUTH_FADE);
 
+    const flip = eyesFlipped();
     if (state.manifest?.swap) {
       applySwapFace(dt, targets, settings, face, blinkL, blinkR);
-    } else for (const side of ['eye_l', 'eye_r']) {
+    } else {
+      // ojos aplastados: decisión calibrada por ojo con histéresis (la misma compuerta de los recortes)
+      let gate = null;
+      if (squashes('eye_l') || squashes('eye_r')) {
+        swapEyes.bind(state.manifest.id || currentRigCharacter() || 'personaje');
+        gate = swapEyes.step(targets, {
+          independentWink: settings?.independentWink === true,
+          blinkAmt: settings?.sensitivity?.blink,
+        }, dt);
+      }
+      for (const side of ['eye_l', 'eye_r']) {
+        if (!squashes(side)) continue;
+        const slot = state.eye[side];
+        const left = (side === 'eye_l') !== flip;
+        let next;
+        if (gate) next = (left ? gate.closedL : gate.closedR) ? 'closed' : 'open';
+        else next = stepEyeOpen(slot.id, left ? blinkL : blinkR);
+        slot.prev = next;
+        slot.id = next;
+        slot.fade = 1;
+      }
+    }
+    if (!state.manifest?.swap) for (const side of ['eye_l', 'eye_r']) {
+      if (squashes(side)) continue;
       const slot = state.eye[side];
-      const blink = side === 'eye_l' ? blinkL : blinkR;
+      const blink = ((side === 'eye_l') !== flip) ? blinkL : blinkR;
       const next = stepEyeOpen(slot.id, blink);
       if (next !== slot.id) {
         slot.prev = slot.id;
@@ -1304,6 +1374,7 @@ export function createPuppet(canvas) {
       }
       slot.fade = Math.min(1, slot.fade + dt / EYE_FADE);
     }
+    stepSquash(dt);
 
     let jumpY = 0;
     let jumpSy = 1;
@@ -1428,10 +1499,33 @@ export function createPuppet(canvas) {
     return style?.full || null;
   }
 
+  /** Aplastado del ojo (0..1); con depuración se puede fijar a mano. */
+  function squashOf(side) {
+    if (!squashes(side)) return 0;
+    if (state.squashDebug != null) return clamp(state.squashDebug, 0, 1);
+    return state.squash[side] || 0;
+  }
+
+  /** Aplasta en vertical alrededor del centro del ojo. false = oculto (ojo cerrado). */
+  function applySquash(side) {
+    const amt = squashOf(side);
+    if (amt <= 0) return true;
+    if (amt >= 0.999) return false;
+    const c = state.manifest.eyes?.[side === 'eye_l' ? 'l' : 'r']?.center;
+    const cx = Array.isArray(c) ? +c[0] : +c?.x || 0;
+    const cy = Array.isArray(c) ? +c[1] : +c?.y || 0;
+    const sy = 1 - (1 - SQUASH_MIN) * amt;
+    ctx.translate(cx, cy);
+    ctx.scale(1, sy);
+    ctx.translate(-cx, -cy);
+    return true;
+  }
+
   function paintEye(side) {
     const slot = state.eye[side];
     const view = state.view;
-    const closed = slot.id === 'closed';
+    if (squashes(side) && !applySquash(side)) return;
+    const closed = slot.id === 'closed' && !squashes(side);
     const graphic = eyeGraphic(side, closed);
     const layered = !closed && Boolean(resolveStyle(state.manifest, side, state.eyeStyle).style?.white);
     if (graphic && !layered && !graphic.patch) {
@@ -1446,7 +1540,7 @@ export function createPuppet(canvas) {
       side,
       styleId: state.eyeStyle,
       closed,
-      prevClosed: slot.prev === 'closed',
+      prevClosed: slot.prev === 'closed' && !squashes(side),
       fade: slot.fade,
       gazeX: view.gazeX,
       gazeY: view.gazeY,
@@ -1739,7 +1833,10 @@ export function createPuppet(canvas) {
       if (!part.file && state.highlight !== part.id) continue;
       wrapPart(part, () => {
         applyLocal(part);
-        if (!hidden && part.file) {
+        // pieza del ojo (aro): se aplasta y se oculta con su ojo
+        const ringSide = part.blinkWith === 'l' ? 'eye_l' : part.blinkWith === 'r' ? 'eye_r' : null;
+        const shown = ringSide ? applySquash(ringSide) : true;
+        if (!hidden && part.file && shown) {
           if (useShadow) paintShadow(part);
           if (useEdge && resolveChain(part, m.byId).head) paintEdge(part, edgeOx, edgeAlpha);
           paintImage(part);
@@ -2018,6 +2115,8 @@ export function createPuppet(canvas) {
     state.highlight = null;
     state.eye.eye_l = { id: 'open', prev: 'open', fade: 1 };
     state.eye.eye_r = { id: 'open', prev: 'open', fade: 1 };
+    state.squash = { eye_l: 0, eye_r: 0 };
+    state.prevBodyY = null;
     for (const part of m.parts) stampPart(part);
     state.base = captureBase(m);
     state.rigStore = options.overrides || null;
@@ -2090,8 +2189,19 @@ export function createPuppet(canvas) {
         eyeR: state.eye.eye_r.id,
         fadeL: state.eye.eye_l.fade,
         mouthFade: state.mouthFade,
-        cal: state.manifest?.swap ? { ...swapEyes.state } : null,
+        cal: state.manifest?.swap || state.manifest?.squashBlink ? { ...swapEyes.state } : null,
+        squashBlink: state.manifest?.squashBlink === true,
+        squashL: squashOf('eye_l'),
+        squashR: squashOf('eye_r'),
       };
+    },
+    /** Pruebas: fija el aplastado de los ojos (0..1) o null para volver al parpadeo real. */
+    setSquashDebug(value) {
+      state.squashDebug = value == null ? null : clamp(finite(value, 0), 0, 1);
+    },
+    /** Opción del personaje «Parpadeo aplastando ojos». */
+    setSquashBlink(on) {
+      state.manifest.squashBlink = Boolean(on);
     },
   };
 }

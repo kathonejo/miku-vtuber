@@ -76,9 +76,17 @@ function num(v, fb, lo, hi) {
   return clamp(n, lo, hi);
 }
 
+/** Piezas con resorte: pelo, orejas, cola y patas. */
+export function hasMotion(part) {
+  const role = part?.role;
+  return role === 'hair' || role === 'ear' || role === 'tail' || role === 'limb';
+}
+
 export function swings(part) {
   const id = part?.id || '';
   if (part?.role === 'ear') return { sway: 7, limit: 12 };
+  if (part?.role === 'tail') return { sway: 4, limit: 12 };
+  if (part?.role === 'limb') return { sway: 0, limit: 6 };
   if (id === 'hair_back') return { sway: 1.5, limit: 4 };
   return { sway: 3, limit: 6 };
 }
@@ -87,14 +95,17 @@ export function swings(part) {
 export function motionDefaults(part) {
   const swing = swings(part);
   const ear = part?.role === 'ear';
+  const tail = part?.role === 'tail';
+  const limb = part?.role === 'limb';
   return {
     sway: swing.sway,
-    speed: ear ? 0.35 : 0.26,
-    stiffness: ear ? 130 : 95,
-    damping: ear ? 13 : 12,
+    speed: ear || tail ? 0.35 : limb ? 0.3 : 0.26,
+    // cola: resorte flojo, que rebota (al estilo de los apéndices de PNG Remix)
+    stiffness: ear ? 130 : tail ? 55 : 95,
+    damping: ear ? 13 : tail ? 5 : 12,
     phase: PHASE[part?.id] ?? 0,
     gravity: 0,
-    follow: 1,
+    follow: limb ? 0 : 1,
     limit: swing.limit,
   };
 }
@@ -223,20 +234,27 @@ export function applyPartOverride(part, raw) {
   part.rig = sanitizeRig({ ...part.rig, ...raw }, part);
 }
 
+function blinkOf(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (typeof raw.squash !== 'boolean') return null;
+  return { squash: raw.squash };
+}
+
 export function normalizeStore(data) {
-  const empty = { order: null, parts: {}, neck: null };
+  const empty = { order: null, parts: {}, neck: null, blink: null };
   if (!data || typeof data !== 'object' || Array.isArray(data)) return empty;
   const neck = neckOf(data._neck || data.neck);
+  const blink = blinkOf(data._blink || data.blink);
   if (data.parts && typeof data.parts === 'object' && !Array.isArray(data.parts)) {
-    return { order: Array.isArray(data.order) ? data.order : null, parts: { ...data.parts }, neck };
+    return { order: Array.isArray(data.order) ? data.order : null, parts: { ...data.parts }, neck, blink };
   }
   const parts = {};
   for (const [key, value] of Object.entries(data)) {
-    if (key === 'order' || key === '_neck' || key === 'neck' || key === 'parts') continue;
+    if (key === 'order' || key === '_neck' || key === 'neck' || key === 'parts' || key === '_blink' || key === 'blink') continue;
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
     parts[key] = value;
   }
-  return { order: Array.isArray(data.order) ? data.order : null, parts, neck };
+  return { order: Array.isArray(data.order) ? data.order : null, parts, neck, blink };
 }
 
 export function loadOverrides(id) {
@@ -255,6 +273,7 @@ export function packOverrides(data) {
   const norm = normalizeStore(data);
   const flat = { order: norm.order || [] };
   if (norm.neck) flat._neck = norm.neck;
+  if (norm.blink) flat._blink = norm.blink;
   for (const [id, row] of Object.entries(norm.parts)) flat[id] = row;
   return flat;
 }
@@ -305,6 +324,7 @@ export function applyOverrides(manifest, data) {
     const raw = norm.parts[part.id];
     if (raw && typeof raw === 'object') applyPartOverride(part, raw);
   }
+  if (norm.blink) manifest.squashBlink = norm.blink.squash;
   if (norm.neck && manifest.neck) {
     manifest.neck.enabled = norm.neck.enabled;
     manifest.neck.length = norm.neck.length;
@@ -325,6 +345,7 @@ export function captureBase(manifest) {
       parent: typeof p.parent === 'string' ? p.parent : null,
       rig: { ...(p.rig || emptyRig(p)) },
     }])),
+    squashBlink: manifest.squashBlink === true,
     neck: manifest.neck ? {
       enabled: Boolean(manifest.neck.enabled),
       length: Number(manifest.neck.length) || 0,
@@ -345,6 +366,7 @@ export function restoreBase(manifest, base) {
     if (!ordered.includes(part)) ordered.push(part);
   }
   manifest.parts = glueMouth(ordered);
+  if (typeof base.squashBlink === 'boolean') manifest.squashBlink = base.squashBlink;
   for (const part of manifest.parts) {
     const saved = base.parts?.[part.id];
     if (!saved) continue;
@@ -380,6 +402,9 @@ function hairSign(id) {
 /** Empuje de la cabeza, en radianes, con follow = 1. */
 export function headCoupling(part, head) {
   const id = part?.id || '';
+  // cola y patas cuelgan del cuerpo: las empuja la inclinación del cuerpo, no la cabeza
+  if (part?.role === 'tail') return -head.lean * 0.9;
+  if (part?.role === 'limb') return -head.lean * 0.5;
   if (part?.role === 'ear') {
     if (id.endsWith('_l')) return -head.yaw * 0.09 + head.rollRad * 0.25;
     return head.yaw * 0.08 - head.rollRad * 0.25;

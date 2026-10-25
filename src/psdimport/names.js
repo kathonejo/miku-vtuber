@@ -11,6 +11,8 @@ export const ROLE_OPTIONS = [
   ['bangs', 'Flequillo'],
   ['hair', 'Mechón (pelo que se mueve)'],
   ['body', 'Cuerpo'],
+  ['leg', 'Pata (sigue al cuerpo, gira en la cadera)'],
+  ['tail', 'Cola (resorte, sigue al cuerpo)'],
   ['eye_l_A', 'Ojo izq. (estilo A)'],
   ['eye_r_A', 'Ojo der. (estilo A)'],
   ['eye_l_B', 'Ojo izq. (estilo B)'],
@@ -25,6 +27,8 @@ export const ROLE_OPTIONS = [
   ['highlight_r', 'Brillo der.'],
   ['lash_l', 'Pestañas izq.'],
   ['lash_r', 'Pestañas der.'],
+  ['ring_l', 'Aro del ojo izq. (parpadea con el ojo)'],
+  ['ring_r', 'Aro del ojo der. (parpadea con el ojo)'],
   ['closed_l', 'Ojo cerrado izq.'],
   ['closed_r', 'Ojo cerrado der.'],
   ['mouth_neutral', 'Boca normal'],
@@ -71,6 +75,58 @@ export function normName(value) {
     .trim();
 }
 
+const SIDE_R = new Set(['der', 'derecho', 'derecha', 'dcho', 'dcha', 'right', 'r']);
+const SIDE_L = new Set(['izq', 'izquierdo', 'izquierda', 'izdo', 'izda', 'left', 'l']);
+
+/** Lado escrito en el nombre ('ojo der', 'ojo izq', 'eye L'). null si no lo dice. */
+export function nameSide(raw) {
+  const words = normName(raw).split(/[\s\-.]+/).filter(Boolean);
+  const pick = (short) => {
+    let side = null;
+    for (const word of words) {
+      if (short !== (word.length === 1)) continue;
+      if (SIDE_R.has(word)) side = side === 'l' ? 'both' : 'r';
+      else if (SIDE_L.has(word)) side = side === 'r' ? 'both' : 'l';
+    }
+    return side;
+  };
+  // palabras enteras primero ('ojo der l': 'l' es la línea); letras sueltas solo si no hay otra cosa
+  const full = pick(false);
+  if (full) return full === 'both' ? null : full;
+  const short = pick(true);
+  return short && short !== 'both' ? short : null;
+}
+
+const LINE_WORDS = new Set(['l', 'linea', 'lineas', 'line', 'lines', 'lineart', 'contorno', 'trazo']);
+const COLOR_WORDS = new Set(['color', 'colour', 'col', 'relleno', 'fill']);
+
+/** Clave de par línea/color: 'p der' y 'p der color', 'p4 l' y 'p4 color' → misma clave. */
+export function pairInfo(raw) {
+  const words = normName(raw).split(/[\s\-.]+/).filter(Boolean);
+  let color = false;
+  let line = false;
+  while (words.length > 1 && COLOR_WORDS.has(words[words.length - 1])) { words.pop(); color = true; }
+  while (words.length > 1 && LINE_WORDS.has(words[words.length - 1])) { words.pop(); line = true; }
+  return { key: words.join(' '), color, line: line || !color };
+}
+
+const LEG_WORDS = new Set(['pata', 'patas', 'pierna', 'piernas', 'pie', 'pies', 'pezuna', 'pezunas', 'leg', 'legs', 'foot', 'feet']);
+const TAIL_WORDS = new Set(['cola', 'colita', 'rabo', 'tail']);
+const HEAD_WORDS = new Set(['cabeza', 'cara', 'head', 'face', 'cuerno', 'cuernos', 'nariz', 'hocico', 'boca']);
+const BODY_WORDS = new Set(['cuerpo', 'body', 'torso', 'panza']);
+
+/** Grupo por nombre: 'leg' | 'tail' | 'neck' | 'body' | 'head' | null. */
+export function nameGroup(raw) {
+  const words = normName(raw).split(/[\s\-.]+/).filter(Boolean);
+  if (!words.length) return null;
+  if (words.includes('cuello') || words.includes('neck')) return 'neck';
+  if (words.some((word) => TAIL_WORDS.has(word))) return 'tail';
+  if (/^p\d*$/.test(words[0]) || words.some((word) => LEG_WORDS.has(word))) return 'leg';
+  if (words.some((word) => BODY_WORDS.has(word))) return 'body';
+  if (words.some((word) => HEAD_WORDS.has(word))) return 'head';
+  return null;
+}
+
 function has(words, word) {
   return words.includes(word);
 }
@@ -80,16 +136,19 @@ function eyeStyle(words) {
   return 'A';
 }
 
-/** Clasificación por nombre, sin lado. El lado lo pone la posición. */
+/** Clasificación por nombre. Ojos/orejas/brazos: el lado lo dice el nombre si lo trae; si no, la posición. */
 export function classifyName(raw) {
   const name = normName(raw);
   const words = name.split(' ').filter(Boolean);
   if (!words.length) return { role: 'unknown', known: false, name };
   if (has(words, 'pelo') && has(words, 'atras')) return { role: 'hair_back', known: true, name };
   if (has(words, 'orejas')) return { role: 'human_ears', known: true, name };
-  if (has(words, 'oreja')) return { role: 'ear', known: true, name };
+  if (has(words, 'oreja')) return { role: 'ear', known: true, name, side: nameSide(name) };
   if (has(words, 'flequillo')) return { role: 'bangs', known: true, name };
   if (has(words, 'cuello')) return { role: 'neck', known: true, name };
+  const group = nameGroup(name);
+  if (group === 'tail') return { role: 'tail', known: true, name };
+  if (group === 'leg') return { role: 'leg', known: true, name };
   if (has(words, 'cuerpo')) return { role: 'body', known: true, name };
   if (has(words, 'cara') || has(words, 'cabeza')) return { role: 'face', known: true, name };
   if (has(words, 'boca')) {
@@ -105,11 +164,11 @@ export function classifyName(raw) {
     return { role: 'hair', known: true, name };
   }
   const eye = classifyEye(words);
-  if (eye) return { ...eye, known: true, name };
+  if (eye) return { ...eye, known: true, name, side: nameSide(name) };
   const kind = KINDS[words[0]];
   if (kind) {
     const pose = words.slice(1).map((word) => POSES[word]).find(Boolean) || 'rest';
-    return { role: kind, pose, known: true, name };
+    return { role: kind, pose, known: true, name, side: nameSide(name) };
   }
   return { role: 'unknown', known: false, name };
 }

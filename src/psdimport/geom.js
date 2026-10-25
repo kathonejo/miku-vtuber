@@ -1,6 +1,6 @@
 /** Heurísticos, pivotes y paso a espacio de rig 600×600. Sin canvas. */
 
-import { roleValue } from './names.js';
+import { nameGroup, roleValue } from './names.js';
 
 const ALPHA = 8;
 
@@ -75,6 +75,75 @@ export function nearestPoint(layer, tx, ty) {
     }
   }
   return { x: bx, y: by };
+}
+
+/** Centro de lo que la capa tapa de las capas de cuerpo (raíz de la cola). */
+function overlapCentroid(layer, bodies) {
+  let sx = 0;
+  let sy = 0;
+  let n = 0;
+  const step = layer.width * layer.height > 280000 ? 2 : 1;
+  for (const body of bodies) {
+    if (body === layer) continue;
+    const x0 = Math.max(layer.left, body.left);
+    const y0 = Math.max(layer.top, body.top);
+    const x1 = Math.min(layer.left + layer.width, body.left + body.width);
+    const y1 = Math.min(layer.top + layer.height, body.top + body.height);
+    for (let y = y0; y < y1; y += step) {
+      for (let x = x0; x < x1; x += step) {
+        const a = layer.pixels[((y - layer.top) * layer.width + (x - layer.left)) * 4 + 3];
+        if (a <= ALPHA) continue;
+        const b = body.pixels[((y - body.top) * body.width + (x - body.left)) * 4 + 3];
+        if (b <= ALPHA) continue;
+        sx += x;
+        sy += y;
+        n += 1;
+      }
+    }
+  }
+  return n ? { x: sx / n, y: sy / n } : null;
+}
+
+/** Dos ojos que cayeron del mismo lado sin que el nombre lo diga: se reparten por posición. */
+function spreadEyes(layers) {
+  for (const style of ['A', 'B']) {
+    for (const side of ['l', 'r']) {
+      const same = layers.filter((layer) => layer.role === `eye_${side}_${style}`);
+      if (same.length < 2) continue;
+      const other = side === 'l' ? 'r' : 'l';
+      if (layers.some((layer) => layer.role === `eye_${other}_${style}`)) continue;
+      const free = same.filter((layer) => !layer.cls?.side);
+      if (!free.length) continue;
+      const sorted = same.slice().sort((a, b) => a.cx - b.cx);
+      const left = sorted[0];
+      const right = sorted[sorted.length - 1];
+      if (side === 'l' && free.includes(right)) { right.role = `eye_r_${style}`; right.side = 'r'; }
+      if (side === 'r' && free.includes(left)) { left.role = `eye_l_${style}`; left.side = 'l'; }
+    }
+  }
+}
+
+/** Capa chica encima de un ojo (p. ej. el aro blanco 'cabeza - copia'): pieza de ese ojo. */
+function findRings(layers) {
+  const eyes = layers.filter((layer) => /^eye_[lr]_[AB]$/.test(layer.role));
+  if (!eyes.length) return;
+  const free = new Set(['static', 'face', 'unknown', 'hair', 'acc_head']);
+  for (const layer of layers) {
+    if (!free.has(layer.role) || layer.hidden) continue;
+    const area = layer.width * layer.height;
+    for (const eye of eyes) {
+      const ew = eye.width;
+      const eh = eye.height;
+      if (area > ew * eh * 2.5) continue;
+      const inside = layer.cx > eye.left - ew * 0.25 && layer.cx < eye.left + ew * 1.25
+        && layer.cy > eye.top - eh * 0.25 && layer.cy < eye.top + eh * 1.25;
+      if (!inside) continue;
+      const side = eye.role[4];
+      layer.role = `ring_${side}`;
+      layer.side = side;
+      break;
+    }
+  }
 }
 
 function sideOf(cx, mid) {
@@ -222,6 +291,14 @@ function assignPivots(layers, face) {
   for (const layer of layers) {
     const role = layer.role;
     if (role === 'ear_l' || role === 'ear_r') layer.pivotPsd = bandCenter(layer, 0.1, true);
+    else if (role === 'leg') layer.pivotPsd = bandCenter(layer, 0.15, false);
+    else if (role === 'tail') {
+      const bodies = layers.filter((item) => item !== layer && !item.hidden
+        && (item.role === 'body' || nameGroup(item.name) === 'body'));
+      const root = overlapCentroid(layer, bodies);
+      const bodyBox = unionOf(bodies);
+      layer.pivotPsd = root || (bodyBox ? nearestPoint(layer, bodyBox.cx, bodyBox.cy) : { x: layer.cx, y: layer.cy });
+    }
     else if (role === 'hair') layer.pivotPsd = head ? nearestPoint(layer, head.x, head.y) : { x: layer.cx, y: layer.top };
     else if (role === 'hair_back') {
       layer.pivotPsd = faceBox ? { x: (faceBox.x0 + faceBox.x1) / 2, y: faceBox.y0 } : { x: layer.cx, y: layer.top };
@@ -229,7 +306,7 @@ function assignPivots(layers, face) {
     else if (role === 'face' || role === 'bangs' || role === 'human_ears' || role.startsWith('mouth')
       || role.startsWith('eye_') || role.startsWith('white_') || role.startsWith('iris_')
       || role.startsWith('pupil_') || role.startsWith('highlight_') || role.startsWith('lash_')
-      || role.startsWith('closed_') || role === 'acc_head') {
+      || role.startsWith('closed_') || role.startsWith('ring_') || role === 'acc_head') {
       layer.pivotPsd = neck;
     } else layer.pivotPsd = { x: layer.cx, y: layer.cy };
   }
@@ -243,7 +320,8 @@ export function mapLayers(layers, psdWidth) {
   const charBox = unionOf(visible.length ? visible : layers);
   if (!charBox) return null;
   for (const layer of layers) {
-    layer.side = sideOf(layer.cx, mid);
+    // el nombre manda ('ojo der' / 'ojo izq'); la posición solo si el nombre no dice el lado
+    layer.side = layer.cls?.side || sideOf(layer.cx, mid);
     if (layer.cls?.role === 'sleeve' && layer.pose === 'heart' && Math.abs(layer.cx - mid) < (psdWidth || 1) * 0.08) {
       layer.side = 'both';
     }
@@ -256,6 +334,8 @@ export function mapLayers(layers, psdWidth) {
     for (const extra of faces) if (extra !== face) extra.role = 'static';
   }
   applyHeuristics(layers, charBox, face);
+  spreadEyes(layers);
+  findRings(layers);
   for (const layer of layers) {
     if (layer.role === 'ear_l' || layer.role === 'ear_r') layer.side = layer.role.endsWith('_l') ? 'l' : 'r';
     else if (!layer.side) layer.side = sideOf(layer.cx, mid);

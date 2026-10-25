@@ -1,6 +1,6 @@
 /** Exportar e importar el rig (rig.json horneado o JSON de overrides). */
 
-import { emptyRig } from './rigparams.js';
+import { emptyRig, hasMotion } from './rigparams.js';
 
 function readOffset(part) {
   const off = part?.offset;
@@ -18,7 +18,7 @@ export function bakePart(part) {
   out.scale = rig.scale;
   out.rotation = rig.rot;
   out.visible = rig.visible !== false;
-  if (part.role === 'hair' || part.role === 'ear') {
+  if (hasMotion(part)) {
     out.motion = {
       sway: rig.sway,
       speed: rig.speed,
@@ -43,6 +43,7 @@ export function exportManifest(raw, manifest) {
       stretch: Number(manifest.neck.stretch) || 0,
     };
   }
+  if (typeof manifest.squashBlink === 'boolean') base.squashBlink = manifest.squashBlink;
   if (manifest.pivots?.neck) {
     base.pivots = base.pivots || {};
     base.pivots.neck = [manifest.pivots.neck.x, manifest.pivots.neck.y];
@@ -75,6 +76,7 @@ export function parseRigImport(data) {
         pivot: data.pivots?.neck || data.neck.pivot || null,
       };
     }
+    if (typeof data.squashBlink === 'boolean') overrides._blink = { squash: data.squashBlink };
     if (!overrides.order.length) return { ok: false, error: 'El rig no tiene piezas.' };
     return { ok: true, overrides };
   }

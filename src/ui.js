@@ -113,6 +113,7 @@ export function mount(doc) {
   const api = {
     setDebugTargets,
     faceState: () => puppet.faceState(),
+    setSquashDebug: (value) => puppet.setSquashDebug(value),
     ready: puppet.ready,
     async importPsd(arrayBuffer, filename) {
       psdMapping = await importPsd(arrayBuffer, filename);

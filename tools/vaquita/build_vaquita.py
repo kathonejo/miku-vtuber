@@ -5,20 +5,24 @@ tamaño; nada se dibuja ni se deforma. Escribe public/vaquita/*.png y rig.json.
 
     python3 tools/vaquita/build_vaquita.py
 
-Capas del PSD (de abajo hacia arriba) y a qué pieza van:
+Capas del PSD (de abajo hacia arriba) y a qué pieza van, en el mismo orden:
   ' cuerpo color'                      -> body        (cuerpo, quieto)
-  'vaca cola color', 'vaca cola l'     -> tail        (cola con flor, se mece)
-  'p3 *', 'p der *', 'p 2 der l *'     -> legs        (tres patas, quietas)
+  'vaca cola color', 'vaca cola l'     -> tail        (cola con flor, resorte que se mece)
+  'p3 color', 'p3 l'                   -> leg_p3      (cada pata: color + línea, gira en la cadera)
+  'p der color', 'p der'               -> leg_p_der
+  'p 2 der l color', 'p 2 der l'       -> leg_p2_der
   'cabeza cuello' + sombra de 'cabeza vaca' que queda fuera de la cabeza
                                        -> neck        (relleno del cuello, quieto)
   'cabeza vaca' (dentro de la cabeza), 'cabeza color'
                                        -> head_color  (color y mancha negra de la cabeza)
-  'ojo der'                            -> ojo de la izquierda de la pantalla
-  'ojo izq' + 'cabeza - copia'         -> ojo de la derecha de la pantalla (punto y aro blanco)
-  'vaca cuerpo', 'p4 color', 'p4 l'    -> body_line   (contorno y manchas del cuerpo, pata de atrás)
+  'ojo izq' + 'cabeza - copia'         -> eye_l       (punto y aro blanco; dibujado a la derecha)
+  'ojo der'                            -> eye_r       (dibujado a la izquierda: nombres de la autora)
+  'vaca cuerpo'                        -> body_line   (contorno y manchas del cuerpo)
+  'p4 color', 'p4 l'                   -> leg_p4      (pata de atrás, encima del contorno del cuerpo)
   'cabeza'                             -> head_line   (contorno de la cabeza, cuerno, nariz y boca)
   'Capa 5' está vacía.
-No hay capas de ojos cerrados ni de boca abierta.
+No hay capas de ojos cerrados ni de boca abierta: los ojos parpadean aplastándose
+(squashBlink) y la boca queda como está dibujada.
 """
 import json
 import os
@@ -83,10 +87,16 @@ neck = over(full('cabeza cuello'), masked(head_vaca, 1 - soft))
 
 body = full(' cuerpo color')
 tail = over(full('vaca cola color'), full('vaca cola l'))
-legs = over(full('p3 color'), full('p3 l'), full('p der color'), full('p der'), full('p 2 der l color'), full('p 2 der l'))
-eye_scr_l = full('ojo der')
-eye_scr_r = over(full('ojo izq'), full('cabeza - copia'))
-body_line = over(full('vaca cuerpo'), full('p4 color'), full('p4 l'))
+LEGS = [  # (id, capa de color, capa de línea), en el orden del archivo
+    ('leg_p3', 'p3 color', 'p3 l'),
+    ('leg_p_der', 'p der color', 'p der'),
+    ('leg_p2_der', 'p 2 der l color', 'p 2 der l'),
+]
+legs = [(pid, over(full(c), full(l)), (c, l)) for pid, c, l in LEGS]
+leg_p4 = over(full('p4 color'), full('p4 l'))
+eye_r_img = full('ojo der')                                   # dibujado a la izquierda
+eye_l_img = over(full('ojo izq'), full('cabeza - copia'))     # dibujado a la derecha
+body_line = full('vaca cuerpo')
 # El contorno del cuerpo pasa por encima de la mancha negra de la cabeza (negro sobre
 # negro). Esa parte se dibuja debajo de la cabeza: quieta se ve igual, y al girar la
 # cabeza no deja una línea gris suelta encima de la mancha.
@@ -97,7 +107,7 @@ body_line_under = body_line * head_cover[..., None]
 body_line = body_line * (1 - head_cover[..., None])
 
 # ---- rig: 600x600, personaje de 546 de alto con el borde de arriba en 25
-allm = over(body, tail, legs, neck, head_color, eye_scr_l, eye_scr_r, body_line, head_line)[..., 3] > 0.02
+allm = over(body, tail, *[im for _, im, _ in legs], neck, head_color, eye_l_img, eye_r_img, body_line, leg_p4, head_line)[..., 3] > 0.02
 ys, xs = np.where(allm)
 BX0, BY0, BX1, BY1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
 RIG = 600
@@ -141,6 +151,17 @@ TAIL_BASE = rig(1790, 1200)
 parts = []
 
 
+def hip(img):
+    """Cadera de una pata: centro de la franja de arriba (15 % del alto)."""
+    ys, xs = np.where(img[..., 3] > 0.3)
+    top, bot = ys.min(), ys.max()
+    band = ys <= top + 0.15 * (bot - top)
+    return rig(xs[band].mean(), ys[band].mean())
+
+
+LEG_MOTION = {'sway': 0, 'speed': 0.3, 'stiffness': 90, 'damping': 12, 'gravity': 0, 'follow': 0, 'limit': 6}
+
+
 def part(pid, img, role, parent, pivot, **kw):
     e = save(f'{pid}.png', img)
     e.update({'id': pid, 'role': role, 'parent': parent, 'pivot': pivot})
@@ -149,20 +170,26 @@ def part(pid, img, role, parent, pivot, **kw):
     return e
 
 
-part('body', body, 'static', 'body', FEET)
-part('tail', tail, 'hair', 'body', TAIL_BASE, motion={'sway': 4, 'limit': 7, 'speed': 0.35})
-part('legs', legs, 'static', 'body', FEET)
-part('neck', neck, 'static', 'body', FEET)
-part('body_line_under', body_line_under, 'static', 'body', FEET)
-part('head_color', head_color, 'static', 'head', NECK, parallax=[0, 0])
-eye_l = save('eye_l_open.png', eye_scr_l)
-eye_r = save('eye_r_open.png', eye_scr_r)
-parts.append({'id': 'eye_l', 'role': 'eye', 'parent': 'head', 'side': 'l', 'pivot': center(eye_scr_l), 'parallax': [0, 0]})
-parts.append({'id': 'eye_r', 'role': 'eye', 'parent': 'head', 'side': 'r', 'pivot': center(eye_scr_r), 'parallax': [0, 0]})
-part('body_line', body_line, 'static', 'body', FEET)
-part('head_line', head_line, 'static', 'head', NECK, parallax=[0, 0])
+part('body', body, 'static', 'body', FEET, psdName=[' cuerpo color'])
+# cola: resorte de rotación entera (rigidez, amortiguación, vaivén), sin deformar
+part('tail', tail, 'tail', 'body', TAIL_BASE, psdName=['vaca cola color', 'vaca cola l'],
+     motion={'sway': 4, 'speed': 0.35, 'stiffness': 55, 'damping': 5, 'gravity': 0, 'follow': 1, 'limit': 12})
+for pid, img, names in legs:
+    part(pid, img, 'limb', 'body', hip(img), psdName=list(names), motion=dict(LEG_MOTION))
+part('neck', neck, 'static', 'body', FEET, psdName=['cabeza cuello', 'cabeza vaca'])
+part('body_line_under', body_line_under, 'static', 'body', FEET, psdName=['vaca cuerpo'])
+part('head_color', head_color, 'static', 'head', NECK, parallax=[0, 0], psdName=['cabeza vaca', 'cabeza color'])
+eye_l = save('eye_l_open.png', eye_l_img)
+eye_r = save('eye_r_open.png', eye_r_img)
+parts.append({'id': 'eye_l', 'role': 'eye', 'parent': 'head', 'side': 'l', 'pivot': center(eye_l_img), 'parallax': [0, 0],
+              'psdName': ['ojo izq', 'cabeza - copia']})
+parts.append({'id': 'eye_r', 'role': 'eye', 'parent': 'head', 'side': 'r', 'pivot': center(eye_r_img), 'parallax': [0, 0],
+              'psdName': ['ojo der']})
+part('body_line', body_line, 'static', 'body', FEET, psdName=['vaca cuerpo'])
+part('leg_p4', leg_p4, 'limb', 'body', hip(leg_p4), psdName=['p4 color', 'p4 l'], motion=dict(LEG_MOTION))
+part('head_line', head_line, 'static', 'head', NECK, parallax=[0, 0], psdName=['cabeza'])
 
-comp = over(body, tail, legs, neck, body_line_under, head_color, eye_scr_l, eye_scr_r, body_line, head_line)
+comp = over(body, tail, *[im for _, im, _ in legs], neck, body_line_under, head_color, eye_l_img, eye_r_img, body_line, leg_p4, head_line)
 ref = psd.composite()
 ref = np.asarray(ref).astype(np.float32) / 255
 ref[..., :3] *= ref[..., 3:]
@@ -186,6 +213,7 @@ manifest = {
     'headRigid': True,
     'headRoll': 0.4,
     'paperEdge': False,
+    'squashBlink': True,
     'swap': {
         # no hay boca abierta en el PSD: la boca dibujada en 'cabeza' queda fija
         'mouth': {'on': 0.07, 'off': 0.04, 'holdMs': 70, 'drop': 0.6, 'openId': 'a', 'closedId': 'neutral'},
@@ -197,13 +225,13 @@ manifest = {
     'extras': {},
     'arms': {'parts': {}, 'shoulders': {'l': rig(500, 1500), 'r': rig(800, 1500)}, 'hasCustom': False},
     'eyes': {
-        'l': {'center': center(eye_scr_l), 'styles': {'A': {'full': eye_l}, 'B': {'full': eye_l}}, 'closed': None},
-        'r': {'center': center(eye_scr_r), 'styles': {'A': {'full': eye_r}, 'B': {'full': eye_r}}, 'closed': None},
+        'l': {'center': center(eye_l_img), 'styles': {'A': {'full': eye_l}, 'B': {'full': eye_l}}, 'closed': None},
+        'r': {'center': center(eye_r_img), 'styles': {'A': {'full': eye_r}, 'B': {'full': eye_r}}, 'closed': None},
     },
     'eyeStyles': ['A', 'B'],
     'pivots': {
         'neck': NECK, 'feet': FEET,
-        'eye_l': center(eye_scr_l), 'eye_r': center(eye_scr_r),
+        'eye_l': center(eye_l_img), 'eye_r': center(eye_r_img),
         'headTop': rig(480, 625),
     },
     'bounds': dict(zip(['x0', 'y0'], rig(BX0, BY0))) | dict(zip(['x1', 'y1'], rig(BX1, BY1))),
