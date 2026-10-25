@@ -14,7 +14,64 @@ const EASE = {
     const c3 = c1 + 1;
     return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2;
   },
+  bounce: (x) => {
+    const n = 7.5625, d = 2.75;
+    if (x < 1 / d) return n * x * x;
+    if (x < 2 / d) { x -= 1.5 / d; return n * x * x + 0.75; }
+    if (x < 2.5 / d) { x -= 2.25 / d; return n * x * x + 0.9375; }
+    x -= 2.625 / d; return n * x * x + 0.984375;
+  },
+  step: (x) => (x < 1 ? 0 : 1),
 };
+
+export const POSE_KEYS = ['dx', 'dy', 'rot', 'sc', 'op'];
+
+/** Claves ordenadas por tiempo (0..1 del loop). */
+export function sortedKeys(set) {
+  const keys = Array.isArray(set.keys) ? set.keys.filter((k) => Number.isFinite(k.t)) : [];
+  return keys.slice().sort((a, b) => a.t - b.t);
+}
+
+/* Catmull-Rom: curva suave que pasa por todos los puntos. */
+function cr(p0, p1, p2, p3, s) {
+  const s2 = s * s, s3 = s2 * s;
+  return 0.5 * ((2 * p1) + (-p0 + p2) * s + (2 * p0 - 5 * p1 + 4 * p2 - p3) * s2 + (-p0 + 3 * p1 - 3 * p2 + p3) * s3);
+}
+
+/**
+ * Pose en el momento u (0..1) según las claves. Con loop, la última empalma con la primera.
+ * `curve` = recorrido suave (la posición sigue una curva por todas las claves).
+ */
+export function keyPose(keys, u, loop, curve = false) {
+  const n = keys.length;
+  if (!n) return null;
+  const pose = (k) => ({ dx: k.dx ?? 0, dy: k.dy ?? 0, rot: k.rot ?? 0, sc: k.sc ?? 1, op: k.op ?? 1 });
+  if (n === 1) return pose(keys[0]);
+  let i, local;
+  if (u >= keys[n - 1].t || u < keys[0].t) {
+    if (!loop) return pose(u < keys[0].t ? keys[0] : keys[n - 1]);
+    i = n - 1;
+    const span = 1 - keys[n - 1].t + keys[0].t;
+    local = span <= 1e-6 ? 0 : frac(u - keys[n - 1].t) / span;
+  } else {
+    i = 0;
+    while (i < n - 2 && u >= keys[i + 1].t) i += 1;
+    const span = keys[i + 1].t - keys[i].t;
+    local = span <= 1e-6 ? 1 : (u - keys[i].t) / span;
+  }
+  const j = (i + 1) % n;
+  const a = pose(keys[i]), b = pose(keys[j]);
+  const s = (EASE[keys[i].ease] || EASE.inout)(Math.max(0, Math.min(1, local)));
+  const out = {};
+  for (const k of POSE_KEYS) out[k] = a[k] + (b[k] - a[k]) * s;
+  if (curve && n >= 3) {
+    const at = (k) => (loop ? keys[((k % n) + n) % n] : keys[Math.max(0, Math.min(n - 1, k))]);
+    const p0 = pose(at(i - 1)), p3 = pose(at(i + 2));
+    out.dx = cr(p0.dx, a.dx, b.dx, p3.dx, s);
+    out.dy = cr(p0.dy, a.dy, b.dy, p3.dy, s);
+  }
+  return out;
+}
 
 const frac = (x) => x - Math.floor(x);
 
@@ -54,10 +111,11 @@ function kfPose(set, t, D, loop) {
   return { dx: L('dx'), dy: L('dy'), rot: L('rot'), sc: L('sc'), op: L('op') };
 }
 
-/** Parte sin resorte: pose (inicio→fin o la que se está editando) + comportamiento. */
-function baseAt(layer, set, t, D, loop, edit) {
-  const pose = edit || kfPose(set, t, D, loop) || { dx: 0, dy: 0, rot: 0, sc: 1, op: 1 };
+/** Parte sin resorte: pose (claves o la que se está editando) + comportamiento. */
+function baseAt(layer, set, t, D, loop, edit, keys) {
   const b = set.beh || { type: 'none' };
+  const curve = b.type === 'recorrido';
+  const pose = edit || keyPose(keys, frac(t / D), loop, curve) || kfPose(set, t, D, loop) || { dx: 0, dy: 0, rot: 0, sc: 1, op: 1 };
   const c = cyclesFor(b.period, D, loop);
   const u = frac((c * t) / D + set.phase);
   const w = TAU * u;
@@ -66,6 +124,33 @@ function baseAt(layer, set, t, D, loop, edit) {
     out.dy += -b.amp * (Math.sin(w) * 0.85 + Math.sin(2 * w + 1.3) * 0.15);
     out.dx += b.amp * 0.3 * Math.cos(w + 0.7);
     out.rot += (b.rot || 0) * DEG * Math.sin(w + 1.1);
+    if (b.pulse) out.sc *= 1 + b.pulse * Math.sin(w + 0.4);
+  } else if (b.type === 'orbitar') {
+    const dir = b.dir === -1 ? -1 : 1;
+    out.dx += (b.rx || 0) * Math.cos(dir * w);
+    out.dy += (b.ry || 0) * Math.sin(dir * w);
+    if (b.spin) out.rot += dir * w;
+  } else if (b.type === 'latido') {
+    const bump = (c, wd) => Math.exp(-(((u - c) / wd) ** 2));
+    const p = b.heart ? Math.min(1, bump(0.1, 0.05) + 0.7 * bump(0.28, 0.05)) : 0.5 - 0.5 * Math.cos(w);
+    out.sc *= 1 + (b.amount ?? 0.15) * p;
+  } else if (b.type === 'aparecer') {
+    const show = Math.max(0.05, Math.min(0.9, b.show ?? 0.5));
+    const fade = Math.max(0.02, (1 - show) / 2 * (b.soft ?? 0.6));
+    let v;
+    if (u < show) v = 1;
+    else if (u < show + fade) v = 1 - EASE.sine((u - show) / fade);
+    else if (u < 1 - fade) v = 0;
+    else v = EASE.sine((u - (1 - fade)) / fade);
+    const lo = Math.max(0, Math.min(1, b.min ?? 0));
+    out.op *= lo + (1 - lo) * v;
+  } else if (b.type === 'recorrido') {
+    if (b.orient && keys.length >= 2 && !edit) {
+      const e = 0.002;
+      const p1 = keyPose(keys, frac(t / D - e), loop, true), p2 = keyPose(keys, frac(t / D + e), loop, true);
+      const ang = Math.atan2(p2.dy - p1.dy, p2.dx - p1.dx);
+      if (Math.hypot(p2.dy - p1.dy, p2.dx - p1.dx) > 1e-4) out.rot += ang;
+    }
   } else if (b.type === 'balanceo') {
     out.wind = Math.sin(w) * 0.8 + Math.sin(2 * w + 0.9) * 0.2;
   } else if (b.type === 'deriva') {
@@ -128,9 +213,11 @@ export function bake(scene, settings, edit = null) {
     const glow = new Float32Array(N);
     const drift = new Float32Array(N);
     const pose = edit && edit.index === i ? edit.pose : null;
+    const keys = sortedKeys(set);
+    const B = set.base || {};
     const parent = set.parent != null && set.parent !== i ? out[set.parent] : null;
     const base = new Array(N);
-    for (let k = 0; k < N; k += 1) base[k] = baseAt(layer, set, (k / N) * D, D, loop, pose);
+    for (let k = 0; k < N; k += 1) base[k] = baseAt(layer, set, (k / N) * D, D, loop, pose, keys);
     const b = set.beh || {};
     const isSway = b.type === 'balanceo';
     const follow = parent ? Math.max(0, set.follow || 0) : 0;
@@ -192,7 +279,8 @@ export function bake(scene, settings, edit = null) {
       v.dx += offx[k];
       v.dy += offy[k];
       clampPoco(layer, set, v);
-      let m = localMatrix(set.pivot.x, set.pivot.y, v.dx, v.dy, v.rot, v.sc);
+      // Ubicación base (donde vive la capa) + animación encima.
+      let m = localMatrix(set.pivot.x, set.pivot.y, v.dx + (B.dx || 0), v.dy + (B.dy || 0), v.rot + (B.rot || 0) * DEG, v.sc * (B.sc ?? 1));
       if (parent) {
         const j = k * 6;
         m = mul([parent.mats[j], parent.mats[j + 1], parent.mats[j + 2], parent.mats[j + 3], parent.mats[j + 4], parent.mats[j + 5]], m);

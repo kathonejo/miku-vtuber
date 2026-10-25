@@ -161,10 +161,15 @@ export function renderFrame(ctx, scene, settings, baked, t, W, H, opts = {}) {
       view[0] * m[0], view[0] * m[1], view[0] * m[2], view[0] * m[3],
       view[0] * m[4] + view[4], view[3] * m[5] + view[5],
     ];
-    const span = scene.width + layer.w;
-    const shifts = set.beh?.type === 'deriva' ? [drift * span, drift * span - span] : [0];
+    // Deriva: cruza toda la escena en la dirección elegida y vuelve a entrar por el otro lado.
+    const dir = set.beh?.dir || 'der';
+    const vert = dir === 'arriba' || dir === 'abajo';
+    const sign = dir === 'izq' || dir === 'arriba' ? -1 : 1;
+    const span = vert ? scene.height + layer.h : scene.width + layer.w;
+    const shifts = set.beh?.type === 'deriva' ? [drift * span, drift * span - span].map((v) => v * sign) : [0];
     for (const sh of shifts) {
-      ctx.setTransform(M[0], M[1], M[2], M[3], M[4] + sh * M[0], M[5] + sh * M[1]);
+      const sx = vert ? 0 : sh, sy = vert ? sh : 0;
+      ctx.setTransform(M[0], M[1], M[2], M[3], M[4] + view[0] * sx, M[5] + view[3] * sy);
       ctx.globalCompositeOperation = layer.blend || 'source-over';
       ctx.globalAlpha = a;
       ctx.drawImage(img, layer.x, layer.y, layer.w, layer.h);

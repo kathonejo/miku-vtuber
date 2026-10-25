@@ -1,10 +1,10 @@
 import './escena.css';
 import { importPngFiles, importPsdFile } from './importer.js';
 import {
-  BEHAVIORS, EASINGS, OUTPUTS, PRESETS, applyPreset, autoMbps, defaultPivot, defaultPose,
-  guessBehavior, makeLayerSettings, makeSceneSettings, outputSize,
+  BEHAVIORS, EASINGS, OUTPUTS, PRESETS, applyPreset, autoMbps, defaultBase, defaultPivot, defaultPose,
+  guessBehavior, isFragile, makeLayerSettings, makeSceneSettings, outputSize,
 } from './model.js';
-import { bake, cyclesFor, sample } from './anim.js';
+import { bake, cyclesFor, frac, keyPose, sample, sortedKeys } from './anim.js';
 import { renderFrame, viewMatrix } from './render.js';
 import { exportVideo } from './exporter.js';
 import * as store from './store.js';
@@ -37,8 +37,10 @@ const S = {
   playing: true,
   sel: -1,
   tab: 'capa',
-  tool: 'capa',
-  editPose: null,
+  tool: 'ubicar',
+  editPose: null, // pose en borrador (modo Animar) de la capa elegida
+  selKey: null, // clave elegida en la línea de tiempo
+  autoKey: false,
   dirty: true,
   exporting: false,
   source: null, // { kind: 'builtin', id } o { kind: 'import' }
@@ -89,14 +91,20 @@ const empty = el('div', { class: 'sc-empty' },
 const fullBadge = el('span', { class: 'sc-full-badge', hidden: true, title: 'Mientras tanto ya podés mirar y tocar todo; el video se exporta con las capas completas' });
 const timeLabel = el('span', { class: 'sc-time' }, '0.0 s');
 const scrub = el('input', { type: 'range', min: 0, max: 1000, value: 0, class: 'sc-scrub', 'aria-label': 'Tiempo', title: 'Mové para ver cualquier momento del loop' });
-const toolCapa = el('button', { type: 'button', class: 'sc-seg on', title: 'Clic para elegir una capa; arrastrala para darle pose; arrastrá el punto para mover el pivote', onclick: () => setTool('capa') }, 'Mover capa');
-const toolEnc = el('button', { type: 'button', class: 'sc-seg', title: 'Arrastrá para mover el encuadre; ruedita para zoom', onclick: () => setTool('encuadre') }, 'Mover encuadre');
+const toolCapa = el('button', { type: 'button', class: 'sc-seg on', title: 'Ubicar: arrastrá la capa a donde quieras. Esquinas = tamaño, bolita de arriba = girar, punto celeste = pivote. Queda guardado como su lugar.', onclick: () => setTool('ubicar') }, '✥ Ubicar');
+const toolAnim = el('button', { type: 'button', class: 'sc-seg', title: 'Animar: mové la línea de tiempo, poné la capa en otra pose y tocá “+ Clave”', onclick: () => setTool('animar') }, '◆ Animar');
+const toolEnc = el('button', { type: 'button', class: 'sc-seg', title: 'Arrastrá para mover el encuadre; ruedita para zoom', onclick: () => setTool('encuadre') }, 'Encuadre');
 const frameLabel = el('span', { class: 'sc-frame-label' });
+const undoBtn = el('button', { type: 'button', class: 'sc-icon-btn', title: 'Deshacer (Ctrl+Z)', onclick: () => undo() }, '↶');
+const redoBtn = el('button', { type: 'button', class: 'sc-icon-btn', title: 'Rehacer (Ctrl+Y)', onclick: () => redo() }, '↷');
+const addKeyBtn = el('button', { type: 'button', class: 'sc-addkey', title: 'Guarda la pose de la capa elegida en este momento de la línea de tiempo', onclick: () => addKeyNow() }, '+ Clave');
+const keyRow = el('div', { class: 'sc-keyrow', 'aria-label': 'Claves de la capa elegida' });
 const stage = el('section', { class: 'sc-stage' },
   el('div', { class: 'sc-canvas-wrap' }, view, empty),
   el('div', { class: 'sc-timeline' },
-    el('div', { class: 'sc-segs' }, toolCapa, toolEnc),
-    timeLabel, scrub, frameLabel, fullBadge));
+    el('div', { class: 'sc-segs' }, toolCapa, toolAnim, toolEnc),
+    el('div', { class: 'sc-undo' }, undoBtn, redoBtn),
+    timeLabel, el('div', { class: 'sc-scrub-wrap' }, keyRow, scrub), addKeyBtn, frameLabel, fullBadge));
 
 const props = el('div', { class: 'sc-props-body' });
 const tabs = el('div', { class: 'sc-tabs', role: 'tablist' },
@@ -162,13 +170,17 @@ function openScene(scene, saved = null) {
   if (saved) applySettingsJson(saved, true);
   S.sel = -1;
   S.editPose = null;
+  S.selKey = null;
   S.t = 0;
+  hist.length = 0;
+  histAt = -1;
   empty.hidden = true;
   document.body.classList.add('has-scene');
   rebake();
   renderList();
   renderProps();
   resize();
+  recordNow();
 }
 
 /* ---------- arte disponible (dibujos incluidos) ---------- */
@@ -306,7 +318,7 @@ function resetBuiltin() {
 function settingsJson() {
   const s = S.settings;
   return {
-    tipo: 'escena-bunny-vtuber', version: 1,
+    tipo: 'escena-bunny-vtuber', version: 2,
     escena: { nombre: S.scene.name, ancho: S.scene.width, alto: S.scene.height },
     duration: s.duration, loop: s.loop, fps: s.fps, effects: s.effects, out: s.out,
     layers: S.scene.layers.map((l, i) => ({ name: l.name, group: l.group, ...s.layers[i] })),
@@ -327,11 +339,87 @@ function applySettingsJson(json, quiet = false) {
     if (j < 0) return;
     used.add(j);
     const { name, group, ...rest } = json.layers[j];
-    s.layers[i] = { ...s.layers[i], ...rest, kf: { ...s.layers[i].kf, ...(rest.kf || {}) } };
+    // Versión 1: "Mover poco" venía prendido en muchas capas; ahora arranca apagado (se sugiere con ⚠).
+    if ((json.version || 1) < 2) rest.poco = false;
+    s.layers[i] = {
+      ...s.layers[i], ...rest,
+      kf: { ...s.layers[i].kf, ...(rest.kf || {}) },
+      base: { ...defaultBase(), ...(rest.base || {}) },
+      keys: Array.isArray(rest.keys) ? rest.keys.map((k) => ({ ...k })) : [],
+    };
+    legacyToKeys(s.layers[i], s.duration, s.loop);
     matched += 1;
   });
   if (!quiet) setStatus(`Ajustes cargados en ${matched} de ${S.scene.layers.length} capas.`);
   changed(true);
+}
+
+/* Animación vieja inicio→fin: se pasa a claves (mismo movimiento, ahora editable en la línea de tiempo). */
+function legacyToKeys(set, D, loop) {
+  const kf = set.kf;
+  if (!kf?.on || set.keys?.length) return;
+  const c = Math.max(1, Math.round(cyclesFor(kf.period || D, D, loop)));
+  const pattern = kf.hold ? [[0, 'a'], [0.4, 'b'], [0.5, 'b'], [0.9, 'a']] : [[0, 'a'], [0.5, 'b']];
+  const keys = [];
+  for (let n = 0; n < Math.min(c, 8); n += 1) {
+    for (const [u, w] of pattern) keys.push({ t: round(frac((u - (set.phase || 0) + n) / c), 4), ...kf[w], ease: kf.ease || 'inout' });
+  }
+  set.keys = keys.sort((a, b) => a.t - b.t);
+  kf.on = false;
+}
+
+/* ---------- deshacer / rehacer ---------- */
+const hist = [];
+let histAt = -1;
+let histTimer = 0;
+function snapshot() {
+  const s = S.settings;
+  return JSON.stringify({ layers: s.layers, effects: s.effects, duration: s.duration, loop: s.loop });
+}
+function recordNow() {
+  if (!S.settings || S._restoring) return;
+  clearTimeout(histTimer);
+  const snap = snapshot();
+  if (hist[histAt] === snap) return;
+  hist.length = histAt + 1;
+  hist.push(snap);
+  if (hist.length > 120) hist.shift();
+  histAt = hist.length - 1;
+  updateUndo();
+}
+function recordSoon() { clearTimeout(histTimer); histTimer = setTimeout(recordNow, 450); }
+function restore(snap) {
+  const j = JSON.parse(snap);
+  S._restoring = true;
+  S.settings.layers = j.layers;
+  Object.assign(S.settings.effects, j.effects);
+  S.settings.duration = j.duration;
+  S.settings.loop = j.loop;
+  S.editPose = null;
+  S.selKey = null;
+  rebake();
+  renderList();
+  renderProps();
+  saveSettingsSoon();
+  S._restoring = false;
+  updateUndo();
+}
+function undo() {
+  recordNow();
+  if (histAt <= 0) { flash('No hay nada para deshacer'); return; }
+  histAt -= 1;
+  restore(hist[histAt]);
+  flash('Deshecho');
+}
+function redo() {
+  if (histAt >= hist.length - 1) { flash('No hay nada para rehacer'); return; }
+  histAt += 1;
+  restore(hist[histAt]);
+  flash('Rehecho');
+}
+function updateUndo() {
+  undoBtn.disabled = histAt <= 0;
+  redoBtn.disabled = histAt >= hist.length - 1;
 }
 
 let saveTimer = 0;
@@ -363,11 +451,12 @@ function changed(full = false) {
   cancelAnimationFrame(bakeTimer);
   bakeTimer = requestAnimationFrame(() => rebake());
   saveSettingsSoon();
+  recordSoon();
   if (full) { renderList(); renderProps(); }
 }
 
 /* ---------- lista de capas ---------- */
-const ICON = { none: '·', flotar: '≈', balanceo: '〰', deriva: '→', brillo: '✦' };
+const ICON = { none: '·', flotar: '≈', balanceo: '〰', deriva: '→', brillo: '✦', orbitar: '◯', latido: '♥', aparecer: '◐', recorrido: '⤳' };
 
 function thumbOf(layer) {
   if (layer._thumb) return layer._thumb;
@@ -408,7 +497,9 @@ function renderList() {
     },
     el('img', { src: thumbOf(l), alt: '' }),
     el('span', { class: 'sc-name', title: l.name }, l.name),
-    s.poco ? el('span', { class: 'sc-badge', title: 'Mover poco: limitado para que no se vea el hueco detrás' }, '🔒') : null,
+    s.poco ? el('span', { class: 'sc-badge', title: 'Mover poco: limitado para que no se vea el hueco detrás' }, '🔒')
+      : isFragile(l) ? el('span', { class: 'sc-badge warn', title: 'Puede que no tenga relleno detrás: si la movés mucho se puede ver el hueco. Si pasa, prendé “Mover poco” en la capa.' }, '⚠') : null,
+    s.keys?.length ? el('span', { class: 'sc-badge', title: `${s.keys.length} claves de animación` }, '◆') : null,
     el('span', { class: `sc-chip b-${s.beh.type}`, title: beh?.[2] }, ICON[s.beh.type] || '·'),
     el('button', {
       type: 'button', class: 'sc-eye', title: s.visible ? 'Ocultar capa' : 'Mostrar capa',
@@ -418,12 +509,8 @@ function renderList() {
 }
 
 function select(i) {
+  if (i !== S.sel) { S.editPose = null; S.selKey = null; }
   S.sel = i;
-  if (i >= 0) {
-    const kf = S.settings.layers[i].kf;
-    S.editPose = null;
-    S._poseDraft = kf.on ? { ...kf.a } : defaultPose();
-  }
   if (S.tab !== 'capa' && i >= 0) S.tab = 'capa';
   rebake();
   renderList();
@@ -433,11 +520,25 @@ function select(i) {
 }
 
 /* ---------- controles ---------- */
+/* Deslizador + casillero para escribir el número (se puede escribir más allá del deslizador). */
 function slider(label, tip, value, min, max, step, onInput, fmt = (v) => v) {
-  const out = el('output', {}, fmt(value));
+  const pct = /^50\s?%/.test(String(fmt(0.5)));
+  const k = pct ? 100 : 1;
+  const unitOf = (v) => String(fmt(v)).replace(/^[-−]?[\d.,]+\s?/, '');
+  const unit = el('span', { class: 'sc-unit' }, unitOf(value));
+  const shown = (v) => String(round(v * k, step * k < 1 ? 2 : 1));
+  const num = el('input', { type: 'number', class: 'sc-num', step: String(step * k), value: shown(value), 'aria-label': label });
   const input = el('input', { type: 'range', min, max, step, value });
-  input.addEventListener('input', () => { const v = Number(input.value); out.textContent = fmt(v); onInput(v); });
-  return el('label', { class: 'sc-field', title: tip }, el('span', { class: 'sc-label' }, label, out), input);
+  input.addEventListener('input', () => { const v = Number(input.value); num.value = shown(v); unit.textContent = unitOf(v); onInput(v); });
+  num.addEventListener('change', () => {
+    const v = Number(num.value) / k;
+    if (!Number.isFinite(v)) return;
+    input.value = String(v);
+    unit.textContent = unitOf(v);
+    onInput(v);
+  });
+  num.addEventListener('keydown', (e) => e.stopPropagation());
+  return el('label', { class: 'sc-field', title: tip }, el('span', { class: 'sc-label' }, el('span', {}, label), el('span', { class: 'sc-val' }, num, unit)), input);
 }
 function toggle(label, tip, value, onChange) {
   const input = el('input', { type: 'checkbox' });
@@ -474,70 +575,114 @@ function renderProps() {
   if (S.tab === 'capa') renderLayerProps();
   else if (S.tab === 'escena') renderSceneProps();
   else renderExportProps();
+  renderKeyRow();
+  markPending();
 }
 
 function renderLayerProps() {
   const i = S.sel;
   if (i < 0) {
     props.append(el('div', { class: 'sc-empty-props' },
-      el('p', {}, 'Tocá una capa en la lista o en la vista para darle movimiento.'),
+      el('p', {}, 'Tocá una capa en la lista o en la vista para moverla o darle movimiento.'),
+      el('p', { class: 'sc-hint' }, 'Con ✥ Ubicar la arrastrás a cualquier lugar. Con ◆ Animar le das claves en la línea de tiempo.'),
       el('p', { class: 'sc-hint' }, 'Consejo: empezá por un preset en la pestaña Escena y después ajustá de a una.')));
     return;
   }
   const l = S.scene.layers[i];
   const s = S.settings.layers[i];
-  const unit = Math.max(S.scene.width, S.scene.height) / 1000;
+  const W = S.scene.width, H = S.scene.height;
   const D = S.settings.duration;
   props.append(el('div', { class: 'sc-layer-title' }, el('strong', {}, l.name), l.group ? el('span', {}, l.group) : null));
+
+  /* Ubicación: dónde vive la capa (se guarda), aparte de la animación. */
+  const B = s.base || (s.base = defaultBase());
+  const setB = (k, v) => { B[k] = v; changed(); };
+  props.append(section('Ubicación',
+    el('p', { class: 'sc-hint' }, 'Arrastrala en la vista con ✥ Ubicar. Esquinas = tamaño, bolita de arriba = girar. Flechas del teclado = de a poquito.'),
+    slider('X', 'Correr a los costados', round(B.dx), -W, W, 1, (v) => setB('dx', v), (v) => `${Math.round(v)} px`),
+    slider('Y', 'Subir o bajar', round(B.dy), -H, H, 1, (v) => setB('dy', v), (v) => `${Math.round(v)} px`),
+    slider('Giro', 'Rotar desde el pivote', round(B.rot, 1), -180, 180, 0.5, (v) => setB('rot', v), (v) => `${v}°`),
+    slider('Tamaño', 'Agrandar o achicar', B.sc ?? 1, 0.1, 4, 0.01, (v) => setB('sc', Math.max(0.02, v)), (v) => `${Math.round(v * 100)}%`),
+    btn('↺ A su lugar original', 'Vuelve la capa a donde estaba en tu archivo', () => { s.base = defaultBase(); changed(true); })));
 
   const segs = el('div', { class: 'sc-behs' }, ...BEHAVIORS.map(([id, label, tip]) => btn(`${ICON[id]} ${label}`, tip, () => {
     const guess = guessBehavior(l, S.scene);
     const defaults = {
-      flotar: { amp: 4 * unit, period: 6, rot: 0.5 },
-      balanceo: { amp: 4, period: 4, stiff: 0.45 },
-      deriva: { period: D, rot: 0 },
+      flotar: { amp: 0.02 * H, period: 6, rot: 0.5, pulse: 0 },
+      balanceo: { amp: 6, period: 4, stiff: 0.45 },
+      deriva: { period: D, rot: 0, dir: 'der' },
       brillo: { depth: 0.5, glow: 0.7, period: 3 },
+      orbitar: { rx: Math.round(0.08 * W), ry: Math.round(0.05 * H), period: 6, dir: 1, spin: false },
+      latido: { amount: 0.12, period: 2, heart: false },
+      aparecer: { show: 0.5, soft: 0.7, min: 0, period: 4 },
+      recorrido: { orient: false, period: D },
       none: {},
     }[id];
     s.beh = { ...defaults, ...(guess.type === id ? guess : {}), type: id };
-    s.pivot = defaultPivot(l, id);
+    setPivot(s, defaultPivot(l, id));
+    if (id === 'recorrido' && (s.keys?.length || 0) < 2) { setTool('animar'); flash('Recorrido: agregá 2 o más claves con “+ Clave”'); }
     changed(true);
   }, s.beh.type === id ? 'on' : '')));
   const b = s.beh;
   const cyc = (p) => `${round(p, 1)} s${S.settings.loop ? ` · ${cyclesFor(p, D, true)}×` : ''}`;
+  const pc = (v) => `${Math.round(v * 100)}%`;
   const params = [];
   if (b.type === 'flotar') {
-    params.push(slider('Altura', 'Cuánto sube y baja', round(b.amp / unit, 1), 0, 30, 0.5, (v) => { b.amp = v * unit; changed(); }));
+    params.push(slider('Altura', 'Cuánto sube y baja, en píxeles del archivo', round(b.amp), 0, Math.round(H * 0.25), 1, (v) => { b.amp = v; changed(); }, (v) => `${Math.round(v)} px`));
     params.push(slider('Ritmo', 'Segundos por vuelta (se ajusta para que el loop cierre perfecto)', b.period, 1, 20, 0.5, (v) => { b.period = v; changed(); }, cyc));
-    params.push(slider('Giro', 'Cuánto se ladea al flotar, en grados', b.rot || 0, 0, 6, 0.1, (v) => { b.rot = v; changed(); }, (v) => `${v}°`));
+    params.push(slider('Giro', 'Cuánto se ladea al flotar, en grados', b.rot || 0, 0, 45, 0.1, (v) => { b.rot = v; changed(); }, (v) => `${v}°`));
+    params.push(slider('Pulso de tamaño', 'Se agranda y achica un poco mientras flota', b.pulse || 0, 0, 0.5, 0.01, (v) => { b.pulse = v; changed(); }, pc));
   } else if (b.type === 'balanceo') {
-    params.push(slider('Ángulo', 'Cuánto se mece, en grados', b.amp, 0, 25, 0.5, (v) => { b.amp = v; changed(); }, (v) => `${v}°`));
+    params.push(slider('Ángulo', 'Cuánto se mece, en grados', b.amp, 0, 45, 0.5, (v) => { b.amp = v; changed(); }, (v) => `${v}°`));
     params.push(slider('Ritmo', 'Segundos por vaivén', b.period, 1, 12, 0.5, (v) => { b.period = v; changed(); }, cyc));
-    params.push(slider('Rigidez', 'Más bajo = más elástico y rebota más', b.stiff ?? 0.45, 0, 1, 0.05, (v) => { b.stiff = v; changed(); }, (v) => `${Math.round(v * 100)}%`));
+    params.push(slider('Rigidez', 'Más bajo = más elástico y rebota más', b.stiff ?? 0.45, 0, 1, 0.05, (v) => { b.stiff = v; changed(); }, pc));
   } else if (b.type === 'deriva') {
+    params.push(select_('Hacia', 'Para qué lado viaja', b.dir || 'der', [['der', '→ Derecha'], ['izq', '← Izquierda'], ['arriba', '↑ Arriba'], ['abajo', '↓ Abajo']], (v) => { b.dir = v; changed(); }));
     params.push(slider('Ritmo', 'Segundos en cruzar toda la escena', b.period, 2, Math.max(30, D), 0.5, (v) => { b.period = v; changed(); }, cyc));
-    params.push(el('p', { class: 'sc-hint' }, 'Sale por un costado y vuelve a entrar por el otro.'));
+    params.push(el('p', { class: 'sc-hint' }, 'Cruza toda la escena y vuelve a entrar por el otro lado.'));
   } else if (b.type === 'brillo') {
-    params.push(slider('Titileo', 'Cuánto baja su luz al latir', b.depth ?? 0.5, 0, 1, 0.05, (v) => { b.depth = v; changed(); }, (v) => `${Math.round(v * 100)}%`));
-    params.push(slider('Resplandor', 'Brillo suave alrededor, hecho con su propio dibujo', b.glow ?? 0.6, 0, 1.5, 0.05, (v) => { b.glow = v; changed(); }, (v) => `${Math.round(v * 100)}%`));
+    params.push(slider('Titileo', 'Cuánto baja su luz al latir', b.depth ?? 0.5, 0, 1, 0.05, (v) => { b.depth = v; changed(); }, pc));
+    params.push(slider('Resplandor', 'Brillo suave alrededor, hecho con su propio dibujo', b.glow ?? 0.6, 0, 1.5, 0.05, (v) => { b.glow = v; changed(); }, pc));
     params.push(slider('Ritmo', 'Segundos por latido', b.period, 0.5, 10, 0.25, (v) => { b.period = v; changed(); }, cyc));
+  } else if (b.type === 'orbitar') {
+    params.push(slider('Ancho', 'Qué tan ancha es la vuelta', round(b.rx ?? 0), 0, Math.round(W / 2), 1, (v) => { b.rx = v; changed(); }, (v) => `${Math.round(v)} px`));
+    params.push(slider('Alto', 'Qué tan alta es la vuelta (igual al ancho = círculo)', round(b.ry ?? 0), 0, Math.round(H / 2), 1, (v) => { b.ry = v; changed(); }, (v) => `${Math.round(v)} px`));
+    params.push(row(btn('◯ Círculo', 'Mismo ancho y alto', () => { b.ry = b.rx; changed(true); }), btn('⬭ Óvalo', 'Más ancho que alto', () => { b.ry = Math.round((b.rx || 0) * 0.5); changed(true); })));
+    params.push(slider('Ritmo', 'Segundos por vuelta', b.period, 1, 30, 0.5, (v) => { b.period = v; changed(); }, cyc));
+    params.push(select_('Sentido', 'Para qué lado gira', String(b.dir || 1), [['1', '↻ Como el reloj'], ['-1', '↺ Al revés del reloj']], (v) => { b.dir = Number(v); changed(); }));
+    params.push(toggle('Girar con la vuelta', 'La capa también rota mientras orbita', b.spin, (v) => { b.spin = v; changed(); }));
+  } else if (b.type === 'latido') {
+    params.push(slider('Cuánto', 'Cuánto se agranda en cada latido', b.amount ?? 0.15, 0, 1, 0.01, (v) => { b.amount = v; changed(); }, pc));
+    params.push(slider('Ritmo', 'Segundos por latido', b.period, 0.5, 10, 0.25, (v) => { b.period = v; changed(); }, cyc));
+    params.push(toggle('Como corazón', 'Doble golpe: pum-pum… pausa', b.heart, (v) => { b.heart = v; changed(); }));
+  } else if (b.type === 'aparecer') {
+    params.push(slider('Tiempo visible', 'Qué parte de cada vuelta se ve', b.show ?? 0.5, 0.1, 0.9, 0.05, (v) => { b.show = v; changed(); }, pc));
+    params.push(slider('Suavidad', 'Más alto = se desvanece más lento', b.soft ?? 0.7, 0.1, 1, 0.05, (v) => { b.soft = v; changed(); }, pc));
+    params.push(slider('Mínimo', 'Cuánto se sigue viendo cuando “desaparece”', b.min ?? 0, 0, 1, 0.05, (v) => { b.min = v; changed(); }, pc));
+    params.push(slider('Ritmo', 'Segundos por aparición', b.period, 1, 20, 0.5, (v) => { b.period = v; changed(); }, cyc));
+  } else if (b.type === 'recorrido') {
+    params.push(el('p', { class: 'sc-hint' }, 'Sigue una curva suave que pasa por todas tus claves (la línea punteada en la vista).'));
+    if ((s.keys?.length || 0) < 2) params.push(el('p', { class: 'sc-warn' }, '⚠ Necesita 2 o más claves. Pasá a ◆ Animar, mové la línea de tiempo, arrastrá la capa y tocá “+ Clave”.'));
+    params.push(toggle('Mirar hacia adelante', 'La capa gira para apuntar hacia donde va', b.orient, (v) => { b.orient = v; changed(); }));
   }
   props.append(section('Movimiento', segs, ...params));
 
+  props.append(keySection(i, l, s));
+
   props.append(section('Ritmo propio',
-    row(slider('Desfase', 'Corre su movimiento en el tiempo para que no vaya igual que las demás', s.phase, 0, 1, 0.01, (v) => { s.phase = v; changed(); }, (v) => `${Math.round(v * 100)}%`),
+    row(slider('Desfase', 'Corre su movimiento en el tiempo para que no vaya igual que las demás', s.phase, 0, 1, 0.01, (v) => { s.phase = v; changed(); }, pc),
       btn('🎲', 'Desfase aleatorio para esta capa', () => { s.phase = round(Math.random(), 2); changed(true); }, 'sc-icon'))));
 
-  const pivotKids = [
-    row(btn('Pivote abajo', 'Para pasto, flores, orejas: se mece desde la base', () => { s.pivot = defaultPivot(l, 'balanceo'); changed(); }),
-      btn('Pivote al centro', 'Gira desde el medio', () => { s.pivot = defaultPivot(l, 'flotar'); changed(); })),
-    el('p', { class: 'sc-hint' }, 'O arrastrá el punto celeste en la vista.'),
-  ];
-  props.append(section('Pivote', ...pivotKids));
+  props.append(section('Pivote',
+    row(btn('Pivote abajo', 'Para pasto, flores, orejas: se mece desde la base', () => { setPivot(s, defaultPivot(l, 'balanceo')); changed(); }),
+      btn('Pivote al centro', 'Gira desde el medio', () => { setPivot(s, defaultPivot(l, 'flotar')); changed(); })),
+    el('p', { class: 'sc-hint' }, 'O arrastrá el punto celeste en la vista.')));
 
+  const maxPoco = Math.round(Math.max(W, H) * 0.05);
   props.append(section('Cuidado con los huecos',
-    toggle('Mover poco', 'Para capas sin relleno detrás: limita cuánto se puede mover', s.poco, (v) => { s.poco = v; changed(true); }),
-    s.poco ? slider('Máximo', 'Lo más que se puede correr, en píxeles del archivo', s.maxMove, 1, Math.round(unit * 20), 1, (v) => { s.maxMove = v; changed(); }, (v) => `${v} px`) : null));
+    isFragile(l) && !s.poco ? el('p', { class: 'sc-hint' }, '⚠ Esta capa puede no tener relleno detrás. Si al moverla se ve un hueco, prendé “Mover poco”.') : null,
+    toggle('Mover poco', 'Para capas sin relleno detrás: limita cuánto se puede mover la animación (no su ubicación)', s.poco, (v) => { s.poco = v; changed(true); }),
+    s.poco ? slider('Máximo', 'Lo más que se puede correr, en píxeles del archivo', s.maxMove, 1, maxPoco, 1, (v) => { s.maxMove = v; changed(); }, (v) => `${v} px`) : null));
 
   const parentOpts = [['', 'Ninguna (se mueve sola)'], ...S.scene.layers.map((x, k) => [String(k), x.name]).filter(([k]) => Number(k) !== i)];
   props.append(section('Seguir a otra capa',
@@ -546,34 +691,96 @@ function renderLayerProps() {
       if (s.parent != null && !s.follow) s.follow = 0.6;
       changed(true);
     }),
-    s.parent != null ? slider('Rebote al seguir', 'Física secundaria: se queda atrás y rebota cuando la otra se mueve', s.follow || 0, 0, 2, 0.05, (v) => { s.follow = v; changed(); }, (v) => `${Math.round(v * 100)}%`) : null));
-
-  props.append(keyframeSection(i, l, s, unit));
+    s.parent != null ? slider('Rebote al seguir', 'Física secundaria: se queda atrás y rebota cuando la otra se mueve', s.follow || 0, 0, 2, 0.05, (v) => { s.follow = v; changed(); }, pc) : null));
 }
 
-function keyframeSection(i, l, s, unit) {
-  const kf = s.kf;
-  const draft = S._poseDraft || (S._poseDraft = kf.on ? { ...kf.a } : defaultPose());
-  const setDraft = (k, v) => { draft[k] = v; S.editPose = { ...draft }; setPlaying(false); rebake(); };
-  const range = Math.round(unit * 150);
+/* ---------- claves ---------- */
+const fmtT = (t) => `${round(t * S.settings.duration, 1)} s`;
+
+/** Pose de la capa en el momento actual según sus claves (o la que estás editando). */
+function poseNow(i) {
+  if (S.editPose && S.sel === i) return S.editPose;
+  const set = S.settings.layers[i];
+  const p = keyPose(sortedKeys(set), frac(S.t / S.settings.duration), S.settings.loop, set.beh?.type === 'recorrido');
+  return p ? { ...p } : defaultPose();
+}
+function startDraft() {
+  if (!S.editPose) S.editPose = { ...poseNow(S.sel) };
+  setPlaying(false);
+  return S.editPose;
+}
+function keyAtNow(set) {
+  const D = S.settings.duration;
+  const u = frac(S.t / D);
+  const tol = 0.6 / (D * (S.settings.fps || 30));
+  return (set.keys || []).find((k) => Math.min(Math.abs(k.t - u), 1 - Math.abs(k.t - u)) < tol) || null;
+}
+function addKeyNow() {
+  if (S.sel < 0) { flash('Primero elegí una capa'); return; }
+  const set = S.settings.layers[S.sel];
+  set.keys = set.keys || [];
+  const pose = { ...poseNow(S.sel) };
+  let k = keyAtNow(set);
+  const fresh = !k;
+  if (k) Object.assign(k, pose);
+  else { k = { t: round(frac(S.t / S.settings.duration), 4), ...pose, ease: 'inout' }; set.keys.push(k); }
+  set.keys.sort((a, b) => a.t - b.t);
+  S.selKey = k;
+  S.editPose = null;
+  changed(true);
+  recordNow();
+  flash(fresh ? `◆ Clave en ${fmtT(k.t)}${set.keys.length === 1 ? ' · mové el tiempo y agregá otra' : ''}` : `◆ Clave de ${fmtT(k.t)} actualizada`);
+}
+function deleteKey(set, k) {
+  set.keys = (set.keys || []).filter((x) => x !== k);
+  if (S.selKey === k) S.selKey = null;
+  S.editPose = null;
+  changed(true);
+  recordNow();
+  flash('Clave borrada');
+}
+
+function keySection(i, l, s) {
+  const keys = sortedKeys(s);
+  s.keys = keys;
+  const d = S.editPose && S.sel === i ? S.editPose : poseNow(i);
+  const W = S.scene.width, H = S.scene.height;
+  const setD = (k, v) => { const p = startDraft(); p[k] = v; if (S.tool !== 'animar') setTool('animar'); rebake(); markPending(); };
   const kids = [
-    el('p', { class: 'sc-hint' }, 'Poné la capa como querés que empiece (arrastrala en la vista o con estos controles) y tocá “Marcar inicio”. Después llevala al final y tocá “Marcar fin”. Va y vuelve sola.'),
-    slider('X', 'Correr a los costados', round(draft.dx), -range, range, 1, (v) => setDraft('dx', v), (v) => `${Math.round(v)} px`),
-    slider('Y', 'Subir o bajar', round(draft.dy), -range, range, 1, (v) => setDraft('dy', v), (v) => `${Math.round(v)} px`),
-    slider('Giro', 'Rotar desde el pivote', draft.rot, -45, 45, 0.5, (v) => setDraft('rot', v), (v) => `${v}°`),
-    slider('Tamaño', 'Agrandar o achicar', draft.sc, 0.5, 1.5, 0.01, (v) => setDraft('sc', v), (v) => `${Math.round(v * 100)}%`),
-    slider('Opacidad', 'Transparencia', draft.op, 0, 1, 0.01, (v) => setDraft('op', v), (v) => `${Math.round(v * 100)}%`),
-    row(btn('Marcar inicio', 'Guarda esta pose como el comienzo', () => { kf.a = { ...draft }; kf.on = true; S.editPose = null; changed(true); flash('Inicio marcado'); }, 'primary'),
-      btn('Marcar fin', 'Guarda esta pose como el final', () => { kf.b = { ...draft }; kf.on = true; S.editPose = null; changed(true); flash('Fin marcado'); }, 'primary')),
-    kf.on ? row(btn('Ver inicio', 'Muestra la pose de inicio para retocarla', () => { S._poseDraft = { ...kf.a }; S.editPose = { ...kf.a }; setPlaying(false); rebake(); renderProps(); }),
-      btn('Ver fin', 'Muestra la pose de fin para retocarla', () => { S._poseDraft = { ...kf.b }; S.editPose = { ...kf.b }; setPlaying(false); rebake(); renderProps(); }),
-      btn('Borrar', 'Saca la animación inicio → fin', () => { kf.on = false; kf.a = defaultPose(); kf.b = defaultPose(); S._poseDraft = defaultPose(); S.editPose = null; changed(true); })) : null,
-    kf.on ? select_('Curva', 'Cómo acelera y frena entre inicio y fin', kf.ease, EASINGS, (v) => { kf.ease = v; changed(); }) : null,
-    kf.on ? slider('Ida y vuelta', 'Segundos que tarda en ir y volver', kf.period || S.settings.duration, 1, Math.max(30, S.settings.duration), 0.5, (v) => { kf.period = v; changed(); }, (v) => `${round(v, 1)} s${S.settings.loop ? ` · ${cyclesFor(v, S.settings.duration, true)}×` : ''}`) : null,
-    kf.on ? toggle('Pausa en los extremos', 'Se queda un ratito en el inicio y en el fin', kf.hold, (v) => { kf.hold = v; changed(); }) : null,
-    kf.on ? el('p', { class: 'sc-ok' }, '✓ Animación activa. Tocá ▶ para verla.') : null,
+    el('p', { class: 'sc-hint' }, '1) Mové la línea de tiempo. 2) Con ◆ Animar, arrastrá, girá o agrandá la capa. 3) Tocá “+ Clave”. Con 2 o más claves se mueve sola; con Loop perfecto la última vuelve a la primera.'),
+    toggle('Auto-clave', 'Cada vez que soltás la capa en modo Animar, se guarda la clave sola', S.autoKey, (v) => { S.autoKey = v; flash(v ? 'Auto-clave prendida' : 'Auto-clave apagada'); }),
+    row(btn(`+ Clave en ${fmtT(frac(S.t / S.settings.duration))}`, 'Guarda la pose de ahora en este momento', addKeyNow, 'primary'),
+      keys.length ? btn('Borrar todas', 'Saca todas las claves de esta capa', () => { s.keys = []; S.selKey = null; S.editPose = null; changed(true); recordNow(); }) : null),
   ];
-  return section('Animar de inicio a fin', ...kids);
+  if (keys.length) {
+    kids.push(el('div', { class: 'sc-keys' }, ...keys.map((k, n) => el('div', { class: `sc-key${k === S.selKey ? ' sel' : ''}` },
+      btn(`◆ ${fmtT(k.t)}`, 'Ir a esta clave', () => { S.selKey = k; S.editPose = null; setPlaying(false); S.t = k.t * S.settings.duration; S.dirty = true; renderProps(); renderKeyRow(); }, 'sc-key-go'),
+      select_('', n === keys.length - 1 && !S.settings.loop ? 'Última clave: se queda quieta acá' : 'Cómo va desde esta clave hasta la siguiente', k.ease || 'inout', EASINGS, (v) => { k.ease = v; changed(); }),
+      btn('🗑', 'Borrar esta clave', () => deleteKey(s, k), 'sc-icon')))));
+  }
+  kids.push(el('details', { class: 'sc-pose', open: !!S.editPose },
+    el('summary', {}, 'Pose en este momento (con números)'),
+    slider('X', 'Correr a los costados', round(d.dx), -W, W, 1, (v) => setD('dx', v), (v) => `${Math.round(v)} px`),
+    slider('Y', 'Subir o bajar', round(d.dy), -H, H, 1, (v) => setD('dy', v), (v) => `${Math.round(v)} px`),
+    slider('Giro', 'Rotar desde el pivote', round(d.rot, 1), -360, 360, 0.5, (v) => setD('rot', v), (v) => `${v}°`),
+    slider('Tamaño', 'Agrandar o achicar', d.sc, 0.05, 4, 0.01, (v) => setD('sc', v), (v) => `${Math.round(v * 100)}%`),
+    slider('Opacidad', 'Transparencia', d.op, 0, 1, 0.01, (v) => setD('op', Math.max(0, Math.min(1, v))), (v) => `${Math.round(v * 100)}%`)));
+  return section('Animación con claves', ...kids);
+}
+
+/** Cambia el pivote sin que la capa salte de lugar (compensa giro y tamaño de su ubicación). */
+function setPivot(set, p) {
+  const B = set.base || (set.base = defaultBase());
+  const old = set.pivot || p;
+  const r = (B.rot || 0) * Math.PI / 180, k = B.sc ?? 1;
+  const ex = p.x - old.x, ey = p.y - old.y;
+  B.dx = (B.dx || 0) + (k * (Math.cos(r) * ex - Math.sin(r) * ey) - ex);
+  B.dy = (B.dy || 0) + (k * (Math.sin(r) * ex + Math.cos(r) * ey) - ey);
+  set.pivot = { x: p.x, y: p.y };
+}
+
+function markPending() {
+  addKeyBtn.classList.toggle('pending', !!S.editPose && S.sel >= 0);
 }
 
 function renderSceneProps() {
@@ -708,15 +915,28 @@ async function startExport() {
 /* ---------- reproducción, vista y herramientas ---------- */
 function setPlaying(on) {
   S.playing = on;
-  if (on && S.editPose) { S.editPose = null; rebake(); }
+  if (on && S.editPose) { dropDraft(); }
   playBtn.textContent = on ? '⏸ Pausa' : '▶ Reproducir';
   S.last = performance.now();
 }
+/** Descarta la pose en borrador (la que no se guardó como clave). */
+function dropDraft(say = false) {
+  if (!S.editPose) return;
+  S.editPose = null;
+  rebake();
+  markPending();
+  if (say) flash('Pose sin guardar descartada · usá “+ Clave” para guardarla');
+}
 function setTool(t) {
+  if (t !== 'animar') dropDraft();
   S.tool = t;
-  toolCapa.classList.toggle('on', t === 'capa');
+  toolCapa.classList.toggle('on', t === 'ubicar');
+  toolAnim.classList.toggle('on', t === 'animar');
   toolEnc.classList.toggle('on', t === 'encuadre');
   view.classList.toggle('pan', t === 'encuadre');
+  addKeyBtn.hidden = t !== 'animar';
+  document.body.classList.toggle('tool-animar', t === 'animar');
+  S.dirty = true;
 }
 let flashTimer = 0;
 function flash(text) {
@@ -736,9 +956,52 @@ function renderTimeline() {
 scrub.addEventListener('input', () => {
   if (!S.scene) return;
   setPlaying(false);
+  dropDraft(true);
   S.t = (Number(scrub.value) / 1000) * S.settings.duration;
   S.dirty = true;
 });
+scrub.addEventListener('change', () => { if (S.tab === 'capa' && S.sel >= 0) renderProps(); });
+
+/* Rombos de las claves de la capa elegida, arriba de la línea de tiempo: se arrastran para moverlas. */
+function renderKeyRow() {
+  keyRow.textContent = '';
+  if (!S.scene || S.sel < 0) return;
+  const set = S.settings.layers[S.sel];
+  for (const k of sortedKeys(set)) {
+    const d = el('button', { type: 'button', class: `sc-dia${k === S.selKey ? ' sel' : ''}`, title: `Clave en ${fmtT(k.t)} · arrastrá para moverla en el tiempo · Supr para borrarla` });
+    d.style.left = `calc(8px + ${k.t} * (100% - 16px))`;
+    d.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      d.setPointerCapture(e.pointerId);
+      const rect = keyRow.getBoundingClientRect();
+      const x0 = e.clientX;
+      let moved = false;
+      S.selKey = k;
+      setPlaying(false);
+      dropDraft();
+      const move = (ev) => {
+        if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+        moved = true;
+        k.t = round(clamp((ev.clientX - rect.left - 8) / (rect.width - 16), 0, 0.9999), 4);
+        d.style.left = `calc(8px + ${k.t} * (100% - 16px))`;
+        S.t = k.t * S.settings.duration;
+        rebake();
+      };
+      const up = () => {
+        d.removeEventListener('pointermove', move);
+        d.removeEventListener('pointerup', up);
+        S.t = k.t * S.settings.duration;
+        S.dirty = true;
+        set.keys.sort((a, b) => a.t - b.t);
+        changed(true);
+        if (moved) recordNow();
+      };
+      d.addEventListener('pointermove', move);
+      d.addEventListener('pointerup', up);
+    });
+    keyRow.append(d);
+  }
+}
 
 function resize() {
   const wrap = view.parentElement;
@@ -781,32 +1044,128 @@ function toView(m, x, y) {
   return [v[0] * wx + v[4], v[3] * wy + v[5]];
 }
 
-function drawOverlay() {
-  const i = S.sel;
-  if (i < 0 || !S.baked.layers[i]) return;
+function invert(m) {
+  const det = m[0] * m[3] - m[1] * m[2];
+  return [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det, (m[2] * m[5] - m[3] * m[4]) / det, (m[1] * m[4] - m[0] * m[5]) / det];
+}
+/** Punto de la vista (px del canvas) → coordenadas propias de la capa. */
+function toLocal(m, vx, vy) {
+  const v = S.view;
+  const wx = (vx - v[4]) / v[0];
+  const wy = (vy - v[5]) / v[3];
+  const n = invert(m);
+  return [n[0] * wx + n[2] * wy + n[4], n[1] * wx + n[3] * wy + n[5]];
+}
+
+/** Manijas de la capa elegida, en px del canvas. */
+function handlesOf(i) {
   const l = S.scene.layers[i];
   const s = S.settings.layers[i];
   const m = worldOf(i);
   const dpr = view.width / view.clientWidth;
+  const corners = [[l.x, l.y], [l.x + l.w, l.y], [l.x + l.w, l.y + l.h], [l.x, l.y + l.h]].map(([x, y]) => toView(m, x, y));
+  const c = toView(m, l.x + l.w / 2, l.y + l.h / 2);
+  const tm = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
+  let ux = tm[0] - c[0], uy = tm[1] - c[1];
+  const len = Math.hypot(ux, uy) || 1;
+  ux /= len; uy /= len;
+  const rot = [tm[0] + ux * 30 * dpr, tm[1] + uy * 30 * dpr];
+  const pivot = toView(m, s.pivot.x, s.pivot.y);
+  return { m, corners, tm, rot, pivot, dpr };
+}
+
+function drawPath(i, dpr) {
+  const L = S.baked.layers[i];
+  const s = S.settings.layers[i];
+  if (!L) return;
+  const N = S.baked.N;
+  const steps = Math.min(N, 180);
+  const pts = [];
+  let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+  for (let k = 0; k <= steps; k += 1) {
+    const j = (Math.round((k / steps) * N) % N) * 6;
+    const m = [L.mats[j], L.mats[j + 1], L.mats[j + 2], L.mats[j + 3], L.mats[j + 4], L.mats[j + 5]];
+    const p = toView(m, s.pivot.x, s.pivot.y);
+    pts.push(p);
+    minx = Math.min(minx, p[0]); maxx = Math.max(maxx, p[0]); miny = Math.min(miny, p[1]); maxy = Math.max(maxy, p[1]);
+  }
+  if (Math.max(maxx - minx, maxy - miny) < 4 * dpr) return;
+  vctx.save();
+  vctx.strokeStyle = 'rgba(255, 227, 163, 0.85)';
+  vctx.lineWidth = 2 * dpr;
+  vctx.setLineDash([2 * dpr, 5 * dpr]);
+  vctx.lineCap = 'round';
+  vctx.beginPath();
+  pts.forEach(([x, y], k) => (k ? vctx.lineTo(x, y) : vctx.moveTo(x, y)));
+  vctx.stroke();
+  vctx.setLineDash([]);
+  // Las claves, como rombitos sobre el camino.
+  for (const key of sortedKeys(s)) {
+    const r = sample(S.baked, i, key.t * S.settings.duration);
+    const [x, y] = toView(r.m, s.pivot.x, s.pivot.y);
+    const z = (key === S.selKey ? 7 : 5) * dpr;
+    vctx.fillStyle = key === S.selKey ? '#ffe3a3' : '#f0b35a';
+    vctx.strokeStyle = '#2a1a05';
+    vctx.lineWidth = 1.5 * dpr;
+    vctx.beginPath();
+    vctx.moveTo(x, y - z); vctx.lineTo(x + z, y); vctx.lineTo(x, y + z); vctx.lineTo(x - z, y);
+    vctx.closePath();
+    vctx.fill(); vctx.stroke();
+  }
+  vctx.restore();
+}
+
+function drawOverlay() {
+  const i = S.sel;
+  if (i < 0 || !S.baked.layers[i] || S.tool === 'encuadre') return;
+  const h = handlesOf(i);
+  const { dpr } = h;
   vctx.save();
   vctx.setTransform(1, 0, 0, 1, 0, 0);
-  const pts = [[l.x, l.y], [l.x + l.w, l.y], [l.x + l.w, l.y + l.h], [l.x, l.y + l.h]].map(([x, y]) => toView(m, x, y));
-  vctx.strokeStyle = 'rgba(122, 215, 228, 0.9)';
+  if (!S.editPose) drawPath(i, dpr);
+  const anim = S.tool === 'animar';
+  const col = anim ? '#ffb86b' : 'rgba(122, 215, 228, 0.95)';
+  vctx.strokeStyle = col;
   vctx.lineWidth = 1.5 * dpr;
   vctx.setLineDash([6 * dpr, 4 * dpr]);
   vctx.beginPath();
-  pts.forEach(([x, y], k) => (k ? vctx.lineTo(x, y) : vctx.moveTo(x, y)));
+  h.corners.forEach(([x, y], k) => (k ? vctx.lineTo(x, y) : vctx.moveTo(x, y)));
   vctx.closePath();
   vctx.stroke();
   vctx.setLineDash([]);
-  const [px, py] = toView(m, s.pivot.x, s.pivot.y);
-  vctx.fillStyle = '#49c6d6';
+  // Manija de giro.
+  vctx.beginPath();
+  vctx.moveTo(h.tm[0], h.tm[1]);
+  vctx.lineTo(h.rot[0], h.rot[1]);
+  vctx.stroke();
+  vctx.fillStyle = '#fff';
   vctx.strokeStyle = '#062028';
   vctx.lineWidth = 2 * dpr;
   vctx.beginPath();
-  vctx.arc(px, py, 7 * dpr, 0, Math.PI * 2);
-  vctx.fill();
+  vctx.arc(h.rot[0], h.rot[1], 6.5 * dpr, 0, Math.PI * 2);
+  vctx.fill(); vctx.stroke();
+  // Esquinas para el tamaño.
+  for (const [x, y] of h.corners) {
+    const z = 5.5 * dpr;
+    vctx.fillStyle = '#fff';
+    vctx.fillRect(x - z, y - z, z * 2, z * 2);
+    vctx.strokeRect(x - z, y - z, z * 2, z * 2);
+  }
+  // Pivote.
+  vctx.fillStyle = '#49c6d6';
+  vctx.beginPath();
+  vctx.arc(h.pivot[0], h.pivot[1], 7 * dpr, 0, Math.PI * 2);
+  vctx.fill(); vctx.stroke();
+  vctx.beginPath();
+  vctx.moveTo(h.pivot[0] - 11 * dpr, h.pivot[1]); vctx.lineTo(h.pivot[0] + 11 * dpr, h.pivot[1]);
+  vctx.moveTo(h.pivot[0], h.pivot[1] - 11 * dpr); vctx.lineTo(h.pivot[0], h.pivot[1] + 11 * dpr);
+  vctx.lineWidth = 1.2 * dpr;
   vctx.stroke();
+  if (anim && S.editPose) {
+    vctx.font = `${12 * dpr}px Outfit, system-ui, sans-serif`;
+    vctx.fillStyle = '#ffb86b';
+    vctx.fillText('Pose sin guardar · “+ Clave”', h.corners[3][0], h.corners[3][1] + 18 * dpr);
+  }
   vctx.restore();
 }
 
@@ -827,19 +1186,19 @@ function hitMap(l) {
   return l._hit;
 }
 
+function insideBox(i, vx, vy) {
+  const l = S.scene.layers[i];
+  const [x, y] = toLocal(worldOf(i), vx, vy);
+  return x >= l.x && y >= l.y && x < l.x + l.w && y < l.y + l.h;
+}
+
 function hitTest(vx, vy) {
   const big = S.scene.width * S.scene.height * 0.5;
   let fallback = -1;
   for (let i = S.scene.layers.length - 1; i >= 0; i -= 1) {
     const l = S.scene.layers[i];
     if (!S.settings.layers[i].visible) continue;
-    const m = worldOf(i);
-    const v = S.view;
-    const wx = (vx - v[4]) / v[0];
-    const wy = (vy - v[5]) / v[3];
-    const det = m[0] * m[3] - m[1] * m[2];
-    const x = (m[3] * (wx - m[4]) - m[2] * (wy - m[5])) / det;
-    const y = (-m[1] * (wx - m[4]) + m[0] * (wy - m[5])) / det;
+    const [x, y] = toLocal(worldOf(i), vx, vy);
     if (x < l.x || y < l.y || x >= l.x + l.w || y >= l.y + l.h) continue;
     const hm = hitMap(l);
     const a = hm.a[Math.floor(((y - l.y) / l.h) * hm.h) * hm.w + Math.floor(((x - l.x) / l.w) * hm.w)];
@@ -848,6 +1207,13 @@ function hitTest(vx, vy) {
     return i;
   }
   return fallback;
+}
+
+/** Qué se edita al arrastrar: la ubicación (✥ Ubicar) o la pose en borrador (◆ Animar). */
+function editTarget() {
+  const s = S.settings.layers[S.sel];
+  if (S.tool === 'animar') return startDraft();
+  return s.base || (s.base = defaultBase());
 }
 
 let drag = null;
@@ -860,48 +1226,103 @@ view.addEventListener('pointerdown', (e) => {
     drag = { kind: 'pan', x: e.clientX, y: e.clientY, panX: S.settings.out.panX, panY: S.settings.out.panY };
     return;
   }
+  const near = (p, r) => Math.hypot(p[0] - vx, p[1] - vy) < r * dpr;
+  let kind = null;
   if (S.sel >= 0) {
-    const s = S.settings.layers[S.sel];
-    const [px, py] = toView(worldOf(S.sel), s.pivot.x, s.pivot.y);
-    if (Math.hypot(px - vx, py - vy) < 14 * dpr) {
-      drag = { kind: 'pivot', x: e.clientX, y: e.clientY, px: s.pivot.x, py: s.pivot.y };
-      return;
-    }
+    const h = handlesOf(S.sel);
+    if (near(h.pivot, 12)) kind = 'pivot';
+    else if (near(h.rot, 13)) kind = 'rotate';
+    else if (h.corners.some((c) => near(c, 12))) kind = 'scale';
+    else if (insideBox(S.sel, vx, vy) && hitTest(vx, vy) === S.sel) kind = 'move';
   }
-  const hit = hitTest(vx, vy);
-  if (hit < 0) return;
-  if (hit !== S.sel) select(hit);
-  const draft = S._poseDraft || (S._poseDraft = defaultPose());
-  drag = { kind: 'pose', x: e.clientX, y: e.clientY, dx: draft.dx, dy: draft.dy, moved: false };
+  if (!kind) {
+    const hit = hitTest(vx, vy);
+    if (hit < 0) { if (S.sel >= 0 && !insideBox(S.sel, vx, vy)) select(-1); return; }
+    if (hit !== S.sel) select(hit);
+    kind = 'move';
+  }
+  const s = S.settings.layers[S.sel];
+  const h = handlesOf(S.sel);
+  if (kind === 'pivot') {
+    drag = { kind, pid: e.pointerId };
+    return;
+  }
+  const T = editTarget();
+  drag = {
+    kind, x: e.clientX, y: e.clientY, vx, vy, moved: false, shift: e.shiftKey,
+    start: { dx: T.dx || 0, dy: T.dy || 0, rot: T.rot || 0, sc: T.sc ?? 1 },
+    pv: h.pivot, set: s,
+  };
 });
 view.addEventListener('pointermove', (e) => {
-  if (!drag) return;
-  const k = (view.width / view.clientWidth) / S.view[0];
+  if (!drag) {
+    // Cursor según lo que hay abajo.
+    if (S.sel >= 0 && S.tool !== 'encuadre' && S.view) {
+      const dpr = view.width / view.clientWidth;
+      const vx = e.offsetX * dpr, vy = e.offsetY * dpr;
+      const h = handlesOf(S.sel);
+      const near = (p, r) => Math.hypot(p[0] - vx, p[1] - vy) < r * dpr;
+      view.style.cursor = near(h.pivot, 12) ? 'crosshair' : near(h.rot, 13) ? 'alias' : h.corners.some((c) => near(c, 12)) ? 'nwse-resize' : insideBox(S.sel, vx, vy) ? 'move' : '';
+    } else view.style.cursor = '';
+    return;
+  }
+  const dpr = view.width / view.clientWidth;
+  const k = dpr / S.view[0];
   const ddx = (e.clientX - drag.x) * k;
   const ddy = (e.clientY - drag.y) * k;
   if (drag.kind === 'pan') {
     S.settings.out.panX = drag.panX + (e.clientX - drag.x) / view.clientWidth;
     S.settings.out.panY = drag.panY + (e.clientY - drag.y) / view.clientHeight;
     S.dirty = true;
-  } else if (drag.kind === 'pivot') {
-    const s = S.settings.layers[S.sel];
-    s.pivot = { x: drag.px + ddx, y: drag.py + ddy };
-    rebake();
-  } else if (drag.kind === 'pose') {
-    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
-    drag.moved = true;
-    setPlaying(false);
-    const d = S._poseDraft;
-    d.dx = drag.dx + ddx;
-    d.dy = drag.dy + ddy;
-    S.editPose = { ...d };
-    rebake();
+    return;
   }
+  if (drag.kind === 'pivot') {
+    const s = S.settings.layers[S.sel];
+    const [x, y] = toLocal(worldOf(S.sel), e.offsetX * dpr, e.offsetY * dpr);
+    setPivot(s, { x, y });
+    drag.moved = true;
+    rebake();
+    return;
+  }
+  if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 3) return;
+  drag.moved = true;
+  setPlaying(false);
+  const T = editTarget();
+  const vx = e.offsetX * dpr, vy = e.offsetY * dpr;
+  if (drag.kind === 'move') {
+    T.dx = drag.start.dx + ddx;
+    T.dy = drag.start.dy + ddy;
+    if (e.shiftKey) { if (Math.abs(ddx) > Math.abs(ddy)) T.dy = drag.start.dy; else T.dx = drag.start.dx; }
+  } else if (drag.kind === 'scale') {
+    const d0 = Math.hypot(drag.vx - drag.pv[0], drag.vy - drag.pv[1]) || 1;
+    const d1 = Math.hypot(vx - drag.pv[0], vy - drag.pv[1]);
+    T.sc = clamp(drag.start.sc * (d1 / d0), 0.05, 20);
+    if (e.shiftKey) T.sc = Math.round(T.sc * 10) / 10;
+  } else if (drag.kind === 'rotate') {
+    const a0 = Math.atan2(drag.vy - drag.pv[1], drag.vx - drag.pv[0]);
+    const a1 = Math.atan2(vy - drag.pv[1], vx - drag.pv[0]);
+    let deg = ((a1 - a0) * 180) / Math.PI;
+    if (deg > 180) deg -= 360;
+    if (deg < -180) deg += 360;
+    T.rot = drag.start.rot + deg;
+    if (e.shiftKey) T.rot = Math.round(T.rot / 15) * 15;
+  }
+  rebake();
+  markPending();
 });
 view.addEventListener('pointerup', () => {
-  if (drag && (drag.kind === 'pivot' || drag.kind === 'pan')) saveSettingsSoon();
-  if (drag?.kind === 'pose' && drag.moved) { renderProps(); flash('Pose movida · tocá “Marcar inicio” o “Marcar fin”'); }
+  const d = drag;
   drag = null;
+  if (!d) return;
+  if (d.kind === 'pan') { saveSettingsSoon(); return; }
+  if (!d.moved) return;
+  if (S.tool === 'animar' && d.kind !== 'pivot') {
+    if (S.autoKey) addKeyNow();
+    else { renderProps(); flash('Pose lista · tocá “+ Clave” para guardarla en este momento'); }
+    return;
+  }
+  changed(true);
+  recordNow();
 });
 view.addEventListener('wheel', (e) => {
   if (S.tool !== 'encuadre' || !S.scene) return;
@@ -914,13 +1335,32 @@ view.addEventListener('wheel', (e) => {
 
 window.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, select, textarea')) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+  if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
   if (e.code === 'Space' && S.scene) { e.preventDefault(); setPlaying(!S.playing); }
-  if (e.key === 'Escape') { select(-1); }
+  if (e.key === 'Escape') { if (S.editPose) dropDraft(true); else select(-1); }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && S.selKey && S.sel >= 0) { e.preventDefault(); deleteKey(S.settings.layers[S.sel], S.selKey); }
+  if ((e.key === 'k' || e.key === 'K') && !mod && S.sel >= 0) { e.preventDefault(); addKeyNow(); }
+  const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  if (arrows[e.key] && S.sel >= 0 && S.tool !== 'encuadre') {
+    e.preventDefault();
+    const step = Math.max(1, Math.round(Math.max(S.scene.width, S.scene.height) / 1000)) * (e.shiftKey ? 10 : 1);
+    const T = editTarget();
+    T.dx = (T.dx || 0) + arrows[e.key][0] * step;
+    T.dy = (T.dy || 0) + arrows[e.key][1] * step;
+    rebake();
+    markPending();
+    if (S.tool !== 'animar') { saveSettingsSoon(); recordSoon(); }
+    clearTimeout(S._nudgeT);
+    S._nudgeT = setTimeout(() => renderProps(), 250);
+  }
 });
 
 /* ---------- arranque: recuperar la última escena ---------- */
 renderProps();
-setTool('capa');
+setTool('ubicar');
+updateUndo();
 /* Nunca arranca vacío: abre lo último que usaste, o el primer dibujo incluido. */
 (async () => {
   showLoading('Abriendo tu escena…', 0);
@@ -936,4 +1376,4 @@ setTool('capa');
   setStatus('Importá tu ilustración por capas');
 })();
 
-window.__escena = { S, handleFiles, startExport, setTab, select, applySettingsJson, settingsJson, openBuiltin, openLastImport, resetBuiltin };
+window.__escena = { S, handleFiles, startExport, setTab, select, applySettingsJson, settingsJson, openBuiltin, openLastImport, resetBuiltin, setTool, addKeyNow, undo, redo, handlesOf, renderProps };

@@ -6,14 +6,22 @@ export const BEHAVIORS = [
   ['balanceo', 'Balanceo', 'Se mece con resorte desde su pivote (pasto, orejas, flores)'],
   ['deriva', 'Deriva', 'Viaja de costado y vuelve a entrar por el otro lado'],
   ['brillo', 'Brillo', 'Late su luz: titila y suma un resplandor'],
+  ['orbitar', 'Orbitar', 'Da vueltas en círculo o en óvalo alrededor de su lugar'],
+  ['latido', 'Latido', 'Se agranda y achica como si respirara o latiera'],
+  ['aparecer', 'Aparecer', 'Aparece y se desvanece (fantasmas, luces, mensajes)'],
+  ['recorrido', 'Recorrido', 'Sigue un camino suave que pasa por todas tus claves'],
 ];
 
 export const EASINGS = [
   ['inout', 'Suave entrada y salida'],
-  ['sine', 'Suave (seno)'],
-  ['back', 'Rebote'],
-  ['linear', 'Lineal'],
+  ['sine', 'Suave'],
+  ['back', 'Rebote (se pasa y vuelve)'],
+  ['bounce', 'Rebote al caer'],
+  ['linear', 'Lineal (velocidad pareja)'],
+  ['step', 'Salto (cambia de golpe)'],
 ];
+
+export function defaultBase() { return { dx: 0, dy: 0, rot: 0, sc: 1 }; }
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
@@ -80,7 +88,9 @@ export function makeLayerSettings(layer, scene, index) {
     beh,
     pivot: defaultPivot(layer, beh.type),
     phase: Math.round(seed * 100) / 100,
-    poco: isFragile(layer),
+    poco: false,
+    base: defaultBase(),
+    keys: [],
     maxMove: Math.max(4, Math.round(Math.max(scene.width, scene.height) * 0.0025)),
     parent: null,
     follow: 0,
