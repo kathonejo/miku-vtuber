@@ -6,7 +6,7 @@ export const BEHAVIORS = [
   ['balanceo', 'Balanceo', 'Se mece con resorte desde su pivote (pasto, orejas, flores)'],
   ['deriva', 'Deriva', 'Viaja de costado y vuelve a entrar por el otro lado'],
   ['brillo', 'Brillo', 'Late su luz: titila y suma un resplandor'],
-  ['orbitar', 'Orbitar', 'Da vueltas en círculo o en óvalo alrededor de su lugar'],
+  ['orbitar', 'Orbitar', 'Da vueltas en círculo u óvalo: alrededor de su lugar, de otra capa (por ejemplo la espada) o de un punto'],
   ['latido', 'Latido', 'Se agranda y achica como si respirara o latiera'],
   ['aparecer', 'Aparecer', 'Aparece y se desvanece (fantasmas, luces, mensajes)'],
   ['recorrido', 'Recorrido', 'Sigue un camino suave que pasa por todas tus claves'],
@@ -18,6 +18,7 @@ export const EASINGS = [
   ['back', 'Rebote (se pasa y vuelve)'],
   ['bounce', 'Rebote al caer'],
   ['linear', 'Lineal (velocidad pareja)'],
+  ['fluido', 'Fluido (sigue tu mano, para recorridos grabados)'],
   ['step', 'Salto (cambia de golpe)'],
 ];
 

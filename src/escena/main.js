@@ -4,7 +4,7 @@ import {
   BEHAVIORS, EASINGS, OUTPUTS, PRESETS, applyPreset, autoMbps, defaultBase, defaultPivot, defaultPose,
   guessBehavior, isFragile, makeLayerSettings, makeSceneSettings, outputSize,
 } from './model.js';
-import { bake, cyclesFor, frac, keyPose, sample, sortedKeys } from './anim.js';
+import { bake, cyclesFor, frac, keyPose, orbitAngle, orbitCenterLocal, orbitsOther, sample, sortedKeys } from './anim.js';
 import { renderFrame, viewMatrix } from './render.js';
 import { exportVideo } from './exporter.js';
 import * as store from './store.js';
@@ -47,6 +47,10 @@ const S = {
   builtinJson: null,
   fullReady: null,
   builtins: [],
+  rec: null, // grabación de recorrido en curso
+  recSlow: false,
+  recOrient: false,
+  pick: null, // eligiendo el centro de una órbita con un clic
 };
 
 /* ---------- estructura ---------- */
@@ -98,13 +102,16 @@ const frameLabel = el('span', { class: 'sc-frame-label' });
 const undoBtn = el('button', { type: 'button', class: 'sc-icon-btn', title: 'Deshacer (Ctrl+Z)', onclick: () => undo() }, '↶');
 const redoBtn = el('button', { type: 'button', class: 'sc-icon-btn', title: 'Rehacer (Ctrl+Y)', onclick: () => redo() }, '↷');
 const addKeyBtn = el('button', { type: 'button', class: 'sc-addkey', title: 'Guarda la pose de la capa elegida en este momento de la línea de tiempo', onclick: () => addKeyNow() }, '+ Clave');
+const recBtn = el('button', { type: 'button', class: 'sc-recbtn', title: 'Grabar recorrido (R): después del 3-2-1, arrastrá la capa con el mouse mientras corre el tiempo', onclick: () => toggleRecording() }, '● Grabar');
 const keyRow = el('div', { class: 'sc-keyrow', 'aria-label': 'Claves de la capa elegida' });
+const countEl = el('div', { class: 'sc-count', hidden: true, 'aria-live': 'assertive' });
+const recBadge = el('div', { class: 'sc-recbadge', hidden: true }, el('i'), el('span', {}, ''));
 const stage = el('section', { class: 'sc-stage' },
-  el('div', { class: 'sc-canvas-wrap' }, view, empty),
+  el('div', { class: 'sc-canvas-wrap' }, view, empty, countEl, recBadge),
   el('div', { class: 'sc-timeline' },
     el('div', { class: 'sc-segs' }, toolCapa, toolAnim, toolEnc),
     el('div', { class: 'sc-undo' }, undoBtn, redoBtn),
-    timeLabel, el('div', { class: 'sc-scrub-wrap' }, keyRow, scrub), addKeyBtn, frameLabel, fullBadge));
+    timeLabel, el('div', { class: 'sc-scrub-wrap' }, keyRow, scrub), addKeyBtn, recBtn, frameLabel, fullBadge));
 
 const props = el('div', { class: 'sc-props-body' });
 const tabs = el('div', { class: 'sc-tabs', role: 'tablist' },
@@ -405,6 +412,7 @@ function restore(snap) {
   updateUndo();
 }
 function undo() {
+  if (S.rec) { cancelRecording(); return; }
   recordNow();
   if (histAt <= 0) { flash('No hay nada para deshacer'); return; }
   histAt -= 1;
@@ -412,6 +420,7 @@ function undo() {
   flash('Deshecho');
 }
 function redo() {
+  if (S.rec) return;
   if (histAt >= hist.length - 1) { flash('No hay nada para rehacer'); return; }
   histAt += 1;
   restore(hist[histAt]);
@@ -509,6 +518,8 @@ function renderList() {
 }
 
 function select(i) {
+  if (S.rec && i !== S.rec.i) cancelRecording();
+  if (S.pick && i !== S.pick.i) { S.pick = null; view.style.cursor = ''; }
   if (i !== S.sel) { S.editPose = null; S.selKey = null; }
   S.sel = i;
   if (S.tab !== 'capa' && i >= 0) S.tab = 'capa';
@@ -582,7 +593,7 @@ function renderProps() {
 function renderLayerProps() {
   const i = S.sel;
   if (i < 0) {
-    props.append(el('div', { class: 'sc-empty-props' },
+    props.append(el('div', { class: 'sc-empty-props' }, helpBox(),
       el('p', {}, 'Tocá una capa en la lista o en la vista para moverla o darle movimiento.'),
       el('p', { class: 'sc-hint' }, 'Con ✥ Ubicar la arrastrás a cualquier lugar. Con ◆ Animar le das claves en la línea de tiempo.'),
       el('p', { class: 'sc-hint' }, 'Consejo: empezá por un preset en la pestaña Escena y después ajustá de a una.')));
@@ -592,7 +603,7 @@ function renderLayerProps() {
   const s = S.settings.layers[i];
   const W = S.scene.width, H = S.scene.height;
   const D = S.settings.duration;
-  props.append(el('div', { class: 'sc-layer-title' }, el('strong', {}, l.name), l.group ? el('span', {}, l.group) : null));
+  props.append(el('div', { class: 'sc-layer-title' }, helpBox(), el('strong', {}, l.name), l.group ? el('span', {}, l.group) : null));
 
   /* Ubicación: dónde vive la capa (se guarda), aparte de la animación. */
   const B = s.base || (s.base = defaultBase());
@@ -612,7 +623,7 @@ function renderLayerProps() {
       balanceo: { amp: 6, period: 4, stiff: 0.45 },
       deriva: { period: D, rot: 0, dir: 'der' },
       brillo: { depth: 0.5, glow: 0.7, period: 3 },
-      orbitar: { rx: Math.round(0.08 * W), ry: Math.round(0.05 * H), period: 6, dir: 1, spin: false },
+      orbitar: { rx: Math.round(0.08 * W), ry: Math.round(0.05 * H), period: 6, dir: 1, spin: false, center: 'self' },
       latido: { amount: 0.12, period: 2, heart: false },
       aparecer: { show: 0.5, soft: 0.7, min: 0, period: 4 },
       recorrido: { orient: false, period: D },
@@ -645,10 +656,29 @@ function renderLayerProps() {
     params.push(slider('Resplandor', 'Brillo suave alrededor, hecho con su propio dibujo', b.glow ?? 0.6, 0, 1.5, 0.05, (v) => { b.glow = v; changed(); }, pc));
     params.push(slider('Ritmo', 'Segundos por latido', b.period, 0.5, 10, 0.25, (v) => { b.period = v; changed(); }, cyc));
   } else if (b.type === 'orbitar') {
-    params.push(slider('Ancho', 'Qué tan ancha es la vuelta', round(b.rx ?? 0), 0, Math.round(W / 2), 1, (v) => { b.rx = v; changed(); }, (v) => `${Math.round(v)} px`));
-    params.push(slider('Alto', 'Qué tan alta es la vuelta (igual al ancho = círculo)', round(b.ry ?? 0), 0, Math.round(H / 2), 1, (v) => { b.ry = v; changed(); }, (v) => `${Math.round(v)} px`));
+    const mode = orbitsOther(b) ? b.center : 'self';
+    params.push(select_('Alrededor de', 'Qué centro usa para dar vueltas', mode,
+      [['self', 'Su propio lugar'], ['layer', 'Otra capa (ej.: la espada)'], ['point', 'Un punto que elijo']], (v) => {
+        if (v === 'layer') setOrbitCenter(i, 'layer', b.centerLayer ?? defaultCenterLayer(i));
+        else if (v === 'point') startPickCenter(i);
+        else setOrbitCenter(i, 'self');
+      }));
+    if (mode === 'layer') {
+      const opts = S.scene.layers.map((x, k) => [String(k), x.name]).filter(([k]) => Number(k) !== i);
+      params.push(select_('Capa del centro', 'Da vueltas alrededor de esta capa. Si esa capa se mueve, la vuelta la sigue', String(b.centerLayer), opts, (v) => setOrbitCenter(i, 'layer', Number(v))));
+      params.push(select_('Punto de esa capa', 'Desde dónde se mide el centro', b.centerUse || 'centro', [['centro', 'Su centro'], ['pivote', 'Su pivote (punto celeste)']], (v) => { b.centerUse = v; setOrbitCenter(i, 'layer', b.centerLayer); }));
+    }
+    if (mode === 'point') params.push(row(btn('📍 Elegir el punto', 'Tocá en la vista dónde va el centro de la vuelta', () => startPickCenter(i))));
+    if (mode !== 'self') params.push(el('p', { class: 'sc-hint' }, 'Para acercarla o alejarla, arrastrá la capa o las bolitas rosas del óvalo.' + (mode === 'point' ? ' La cruz rosa es el centro: también se arrastra.' : '')));
+    params.push(slider('Ancho', 'Qué tan ancha es la vuelta', round(b.rx ?? 0), 0, W, 1, (v) => { b.rx = v; changed(); }, (v) => `${Math.round(v)} px`));
+    params.push(slider('Alto', 'Qué tan alta es la vuelta (igual al ancho = círculo)', round(b.ry ?? 0), 0, H, 1, (v) => { b.ry = v; changed(); }, (v) => `${Math.round(v)} px`));
     params.push(row(btn('◯ Círculo', 'Mismo ancho y alto', () => { b.ry = b.rx; changed(true); }), btn('⬭ Óvalo', 'Más ancho que alto', () => { b.ry = Math.round((b.rx || 0) * 0.5); changed(true); })));
-    params.push(slider('Ritmo', 'Segundos por vuelta', b.period, 1, 30, 0.5, (v) => { b.period = v; changed(); }, cyc));
+    if (S.settings.loop) {
+      const turns = b.turns || cyclesFor(b.period, D, true);
+      params.push(slider('Vueltas por loop', 'Cuántas vueltas completas da en cada loop (siempre entero, así cierra perfecto)', turns, 1, 12, 1, (v) => { b.turns = Math.round(v); changed(); }, (v) => `${v} · ${round(D / v, 1)} s c/u`));
+    } else {
+      params.push(slider('Ritmo', 'Segundos por vuelta', b.period, 1, 30, 0.5, (v) => { b.period = v; b.turns = null; changed(); }, cyc));
+    }
     params.push(select_('Sentido', 'Para qué lado gira', String(b.dir || 1), [['1', '↻ Como el reloj'], ['-1', '↺ Al revés del reloj']], (v) => { b.dir = Number(v); changed(); }));
     params.push(toggle('Girar con la vuelta', 'La capa también rota mientras orbita', b.spin, (v) => { b.spin = v; changed(); }));
   } else if (b.type === 'latido') {
@@ -662,10 +692,16 @@ function renderLayerProps() {
     params.push(slider('Ritmo', 'Segundos por aparición', b.period, 1, 20, 0.5, (v) => { b.period = v; changed(); }, cyc));
   } else if (b.type === 'recorrido') {
     params.push(el('p', { class: 'sc-hint' }, 'Sigue una curva suave que pasa por todas tus claves (la línea punteada en la vista).'));
-    if ((s.keys?.length || 0) < 2) params.push(el('p', { class: 'sc-warn' }, '⚠ Necesita 2 o más claves. Pasá a ◆ Animar, mové la línea de tiempo, arrastrá la capa y tocá “+ Clave”.'));
+    if ((s.keys?.length || 0) < 2 && !S.rec) params.push(el('p', { class: 'sc-warn' }, '⚠ Necesita 2 o más claves. Pasá a ◆ Animar, mové la línea de tiempo, arrastrá la capa y tocá “+ Clave”.'));
     params.push(toggle('Mirar hacia adelante', 'La capa gira para apuntar hacia donde va', b.orient, (v) => { b.orient = v; changed(); }));
   }
   props.append(section('Movimiento', segs, ...params));
+
+  props.append(section('Grabar recorrido',
+    el('p', { class: 'sc-hint' }, 'Después del 3-2-1, arrastrá la capa con el mouse mientras corre el tiempo: el camino queda guardado como claves.'),
+    btn(S.rec ? '■ Terminar' : '● Grabar recorrido (R)', 'Graba lo que arrastres durante una vuelta del loop. Grabar de nuevo reemplaza el anterior (Ctrl+Z deshace)', () => toggleRecording(), 'sc-rec-go'),
+    toggle('Grabar más lento', 'El tiempo corre a mitad de velocidad mientras grabás: más fácil ser preciso. El video queda a velocidad normal', S.recSlow, (v) => { S.recSlow = v; }),
+    toggle('Girar mirando el recorrido', 'La capa gira para apuntar hacia donde va', S.recOrient, (v) => { S.recOrient = v; })));
 
   props.append(keySection(i, l, s));
 
@@ -914,6 +950,7 @@ async function startExport() {
 
 /* ---------- reproducción, vista y herramientas ---------- */
 function setPlaying(on) {
+  if (S.rec) return;
   S.playing = on;
   if (on && S.editPose) { dropDraft(); }
   playBtn.textContent = on ? '⏸ Pausa' : '▶ Reproducir';
@@ -921,7 +958,7 @@ function setPlaying(on) {
 }
 /** Descarta la pose en borrador (la que no se guardó como clave). */
 function dropDraft(say = false) {
-  if (!S.editPose) return;
+  if (!S.editPose || S.rec) return;
   S.editPose = null;
   rebake();
   markPending();
@@ -955,6 +992,7 @@ function renderTimeline() {
 }
 scrub.addEventListener('input', () => {
   if (!S.scene) return;
+  if (S.rec) cancelRecording();
   setPlaying(false);
   dropDraft(true);
   S.t = (Number(scrub.value) / 1000) * S.settings.duration;
@@ -1027,7 +1065,20 @@ function frame(now) {
   if (!S.scene || !S.baked) return;
   const dt = Math.min(0.1, (now - (S.last || now)) / 1000);
   S.last = now;
-  if (S.playing && !S.exporting) { S.t = (S.t + dt) % S.settings.duration; S.dirty = true; }
+  const r = S.rec;
+  if (r?.phase === 'rec') {
+    const D = S.settings.duration;
+    r.elapsed += dt * (r.slow ? 0.5 : 1);
+    S.t = Math.min(r.elapsed, D - 1e-4);
+    if (r.down) {
+      r.samples.push({ u: S.t / D, dx: S.editPose.dx, dy: S.editPose.dy });
+      const s = S.settings.layers[r.i], B = s.base || {};
+      r.trail.push([s.pivot.x + (B.dx || 0) + S.editPose.dx, s.pivot.y + (B.dy || 0) + S.editPose.dy]);
+    }
+    S.dirty = true;
+    if (r.elapsed >= D) { finishRecording(); return; }
+  } else if (S.playing && !S.exporting && !r) { S.t = (S.t + dt) % S.settings.duration; S.dirty = true; }
+  if (r?.need) { r.need = false; rebake(); }
   if (!S.dirty) return;
   S.dirty = false;
   S.view = renderFrame(vctx, S.scene, S.settings, S.baked, S.t, view.width, view.height, { fast: S.playing });
@@ -1123,6 +1174,16 @@ function drawOverlay() {
   vctx.save();
   vctx.setTransform(1, 0, 0, 1, 0, 0);
   if (!S.editPose) drawPath(i, dpr);
+  if (!S.rec) drawOrbit(i, dpr); else S._orbitH = null;
+  if (S.rec?.trail.length > 1) {
+    vctx.strokeStyle = 'rgba(255, 92, 92, 0.95)';
+    vctx.lineWidth = 3 * dpr;
+    vctx.lineCap = 'round';
+    vctx.lineJoin = 'round';
+    vctx.beginPath();
+    S.rec.trail.forEach(([x, y], k) => { const [a, b] = W2V(x, y); if (k) vctx.lineTo(a, b); else vctx.moveTo(a, b); });
+    vctx.stroke();
+  }
   const anim = S.tool === 'animar';
   const col = anim ? '#ffb86b' : 'rgba(122, 215, 228, 0.95)';
   vctx.strokeStyle = col;
@@ -1167,6 +1228,282 @@ function drawOverlay() {
     vctx.fillText('Pose sin guardar · “+ Clave”', h.corners[3][0], h.corners[3][1] + 18 * dpr);
   }
   vctx.restore();
+}
+
+
+/* ---------- ayuda rápida ---------- */
+function helpBox() {
+  const how = (title, steps) => el('div', { class: 'sc-help-item' }, el('strong', {}, title), el('ol', {}, ...steps.map((t) => el('li', {}, t))));
+  return el('details', { class: 'sc-help' },
+    el('summary', { title: 'Ayuda: cómo mover, grabar y orbitar' }, '?'),
+    el('div', { class: 'sc-help-card' },
+      how('Mover a otro lugar', ['Elegí ✥ Ubicar (abajo).', 'Arrastrá la capa. Esquinas = tamaño, bolita de arriba = girar.', 'Listo: queda guardada en ese lugar.']),
+      how('Grabar un recorrido', ['Elegí la capa.', 'Tocá ● Grabar (o la tecla R) y esperá el 3-2-1.', 'Arrastrala por donde quieras hasta que termine la vuelta. Ctrl+Z deshace.']),
+      how('Orbitar alrededor de otra capa', ['Elegí la capa que va a girar y tocá ◯ Orbitar.', 'En “Alrededor de” elegí Otra capa → por ejemplo, la espada.', 'Arrastrá la capa (o las bolitas rosas) para cambiar la distancia.'])));
+}
+
+/* ---------- órbitas alrededor de otra capa o de un punto ---------- */
+const V2W = (vx, vy) => [(vx - S.view[4]) / S.view[0], (vy - S.view[5]) / S.view[3]];
+const W2V = (x, y) => [S.view[0] * x + S.view[4], S.view[3] * y + S.view[5]];
+function pivotWorld(i) {
+  const m = worldOf(i), p = S.settings.layers[i].pivot;
+  return [m[0] * p.x + m[2] * p.y + m[4], m[1] * p.x + m[3] * p.y + m[5]];
+}
+/** Centro de la vuelta en este momento, en coordenadas del archivo. */
+function orbitCenterNow(i) {
+  const s = S.settings.layers[i], b = s.beh;
+  const D = S.settings.duration, loop = S.settings.loop;
+  if (!orbitsOther(b)) {
+    const [qx, qy] = pivotWorld(i);
+    const a = orbitAngle(s, S.t, D, loop);
+    return [qx - (b.rx || 0) * Math.cos(a), qy - (b.ry || 0) * Math.sin(a)];
+  }
+  const [lx, ly] = orbitCenterLocal(S.scene, S.settings, s);
+  if (b.center === 'layer' && b.centerLayer !== i && S.baked.layers[b.centerLayer]) {
+    const m = worldOf(b.centerLayer);
+    return [m[0] * lx + m[2] * ly + m[4], m[1] * lx + m[3] * ly + m[5]];
+  }
+  return [lx, ly];
+}
+/** Ajusta tamaño y arranque de la vuelta para que la capa pase por (qx, qy) en este momento. */
+function fitOrbit(i, qx, qy) {
+  const s = S.settings.layers[i], b = s.beh;
+  const [cx, cy] = orbitCenterNow(i);
+  const q = (b.rx || 0) > 0.5 ? (b.ry || 0) / b.rx : 1;
+  const ex = qx - cx, ey = qy - cy;
+  const rx = q > 0.02 ? Math.hypot(ex, ey / q) : Math.abs(ex);
+  b.rx = Math.max(1, Math.round(rx));
+  b.ry = Math.max(0, Math.round(b.rx * q));
+  const ang = Math.atan2(b.ry ? ey / b.ry : 0, ex / b.rx);
+  b.a0 = round(ang - orbitAngle(s, S.t, S.settings.duration, S.settings.loop), 4);
+}
+function defaultCenterLayer(i) {
+  const L = S.scene.layers;
+  const k = L.findIndex((l, j) => j !== i && /espada|sword/i.test(l.name));
+  return k >= 0 ? k : (i === 0 ? 1 : 0);
+}
+function setOrbitCenter(i, mode, layerIdx, point) {
+  const s = S.settings.layers[i], b = s.beh;
+  if (mode === 'layer') {
+    const cb = S.settings.layers[layerIdx]?.beh;
+    if (orbitsOther(cb) && cb.center === 'layer' && cb.centerLayer === i) { flash('Esa capa ya gira alrededor de esta: elegí otra'); renderProps(); return; }
+  }
+  const [qx, qy] = pivotWorld(i); // donde está ahora: la vuelta arranca desde acá
+  b.center = mode;
+  if (mode === 'layer') b.centerLayer = layerIdx;
+  if (mode === 'point' && point) { b.cx = round(point[0]); b.cy = round(point[1]); }
+  if (s.poco) s.poco = false;
+  if (mode !== 'self') {
+    b.rx = 1; b.ry = 1; // círculo, con el radio a la distancia actual
+    fitOrbit(i, qx, qy);
+    if (b.rx < 8) flash('Está casi en el centro: arrastrala para alejarla');
+    else flash(mode === 'layer' ? `◯ Gira alrededor de “${S.scene.layers[layerIdx].name}”` : '◯ Gira alrededor del punto');
+  } else b.a0 = 0;
+  rebake();
+  changed(true);
+  recordNow();
+}
+function startPickCenter(i) {
+  S.pick = { i };
+  view.style.cursor = 'crosshair';
+  flash('Tocá en la vista dónde va el centro de la vuelta');
+  renderProps();
+}
+function drawOrbit(i, dpr) {
+  const b = S.settings.layers[i].beh;
+  S._orbitH = null;
+  if (b?.type !== 'orbitar') return;
+  const C = orbitCenterNow(i);
+  const [cx, cy] = W2V(C[0], C[1]);
+  const rx = (b.rx || 0) * S.view[0], ry = (b.ry || 0) * S.view[3];
+  const hx = [cx + rx, cy], hy = [cx, cy - ry];
+  vctx.save();
+  vctx.strokeStyle = 'rgba(255, 143, 199, 0.9)';
+  vctx.lineWidth = 1.5 * dpr;
+  vctx.setLineDash([7 * dpr, 6 * dpr]);
+  vctx.beginPath();
+  vctx.ellipse(cx, cy, Math.max(0.5, rx), Math.max(0.5, ry), 0, 0, Math.PI * 2);
+  vctx.stroke();
+  vctx.setLineDash([]);
+  // Centro: cruz rosa.
+  vctx.lineWidth = 2 * dpr;
+  vctx.beginPath();
+  vctx.moveTo(cx - 9 * dpr, cy); vctx.lineTo(cx + 9 * dpr, cy);
+  vctx.moveTo(cx, cy - 9 * dpr); vctx.lineTo(cx, cy + 9 * dpr);
+  vctx.stroke();
+  vctx.beginPath();
+  vctx.arc(cx, cy, 4 * dpr, 0, Math.PI * 2);
+  vctx.stroke();
+  for (const [x, y] of [hx, hy]) {
+    vctx.fillStyle = '#ff8fc7';
+    vctx.strokeStyle = '#3a0820';
+    vctx.beginPath();
+    vctx.arc(x, y, 6.5 * dpr, 0, Math.PI * 2);
+    vctx.fill(); vctx.stroke();
+  }
+  vctx.restore();
+  S._orbitH = { C, c: [cx, cy], hx, hy, point: b.center === 'point' };
+}
+
+/* ---------- grabar recorrido con el mouse ---------- */
+let countTimer = 0;
+function toggleRecording() {
+  if (S.rec) { if (S.rec.phase === 'rec') finishRecording(); else cancelRecording(); return; }
+  startRecording();
+}
+function startRecording(opts = {}) {
+  if (!S.scene) return false;
+  if (S.sel < 0) { flash('Primero elegí una capa (tocala en la vista o en la lista)'); return false; }
+  if (S.exporting) return false;
+  if (S.tool === 'encuadre') setTool('ubicar');
+  dropDraft();
+  recordNow();
+  const i = S.sel, s = S.settings.layers[i];
+  S.playing = false;
+  S.t = 0;
+  const pose = { ...poseNow(i) };
+  S.rec = {
+    i, phase: 'count', n: 3, slow: opts.slow ?? S.recSlow, orient: opts.orient ?? S.recOrient,
+    samples: [], trail: [], down: false, elapsed: 0, pose,
+    prevBeh: JSON.parse(JSON.stringify(s.beh || { type: 'none' })), prevPoco: s.poco,
+  };
+  s.beh = { type: 'recorrido', orient: false, period: S.settings.duration };
+  s.poco = false;
+  S.editPose = pose;
+  rebake();
+  recBtn.textContent = '■ Cancelar';
+  recBtn.classList.add('on');
+  const tick = () => {
+    if (!S.rec) return;
+    if (S.rec.n > 0) {
+      countEl.hidden = false;
+      countEl.textContent = String(S.rec.n);
+      countEl.classList.remove('pop'); void countEl.offsetWidth; countEl.classList.add('pop');
+      S.rec.n -= 1;
+      countTimer = setTimeout(tick, opts.fast ? 120 : 750);
+      return;
+    }
+    countEl.textContent = '¡Ya!';
+    countTimer = setTimeout(() => { countEl.hidden = true; }, 500);
+    S.rec.phase = 'rec';
+    S.last = performance.now();
+    recBtn.textContent = '■ Terminar';
+    recBadge.hidden = false;
+    recBadge.querySelector('span').textContent = `Grabando${S.rec.slow ? ' (lento)' : ''} · arrastrá la capa · Esc cancela`;
+    renderProps();
+  };
+  tick();
+  flash('Agarrá la capa con el mouse: arranca en 3…');
+  renderProps();
+  return true;
+}
+function endRecordingUi() {
+  clearTimeout(countTimer);
+  countEl.hidden = true;
+  recBadge.hidden = true;
+  recBtn.textContent = '● Grabar';
+  recBtn.classList.remove('on');
+}
+function cancelRecording(msg = 'Grabación cancelada') {
+  const r = S.rec;
+  if (!r) return;
+  S.rec = null;
+  endRecordingUi();
+  const s = S.settings.layers[r.i];
+  s.beh = r.prevBeh;
+  s.poco = r.prevPoco;
+  S.editPose = null;
+  rebake();
+  setPlaying(false);
+  renderProps();
+  flash(msg);
+}
+function finishRecording() {
+  const r = S.rec;
+  if (!r) return;
+  if (r.samples.length < 3) { cancelRecording('No se grabó nada: apretá y arrastrá la capa mientras corre el tiempo'); return; }
+  S.rec = null;
+  endRecordingUi();
+  const s = S.settings.layers[r.i];
+  s.keys = pathToKeys(r.samples, r.pose, S.settings.loop, S.settings.duration);
+  s.beh = { type: 'recorrido', orient: !!r.orient, period: S.settings.duration };
+  S.editPose = null;
+  S.selKey = null;
+  S.t = 0;
+  rebake();
+  changed(true);
+  recordNow();
+  setPlaying(true);
+  flash(`⤳ Recorrido grabado · ${s.keys.length} claves (Ctrl+Z deshace)`);
+}
+/** Muestras del mouse → camino suave → pocas claves editables. */
+function pathToKeys(samples, pose, loop, D) {
+  const n = Math.max(12, Math.round(D * 30));
+  const pts = samples.slice().sort((a, b) => a.u - b.u).filter((p, k, a) => !k || p.u > a[k - 1].u + 1e-6);
+  const ext = loop ? [{ ...pts[pts.length - 1], u: pts[pts.length - 1].u - 1 }, ...pts, { ...pts[0], u: pts[0].u + 1 }] : pts;
+  const gx = new Float64Array(n), gy = new Float64Array(n);
+  let p = 0;
+  for (let j = 0; j < n; j += 1) {
+    const u = j / n;
+    while (p < ext.length - 2 && ext[p + 1].u <= u) p += 1;
+    const a = ext[p], b = ext[Math.min(p + 1, ext.length - 1)];
+    const w = b.u > a.u ? clamp((u - a.u) / (b.u - a.u), 0, 1) : 0;
+    gx[j] = a.dx + (b.dx - a.dx) * w;
+    gy[j] = a.dy + (b.dy - a.dy) * w;
+  }
+  const at = (k) => (loop ? ((k % n) + n) % n : clamp(k, 0, n - 1));
+  const smooth = (r) => {
+    const tx = Float64Array.from(gx), ty = Float64Array.from(gy);
+    for (let j = 0; j < n; j += 1) {
+      let sx = 0, sy = 0, sw = 0;
+      for (let d = -r; d <= r; d += 1) { const w = r + 1 - Math.abs(d); sx += tx[at(j + d)] * w; sy += ty[at(j + d)] * w; sw += w; }
+      gx[j] = sx / sw; gy[j] = sy / sw;
+    }
+  };
+  smooth(3); smooth(3);
+  if (loop) {
+    // Cierra la vuelta: el final se acerca suave al principio.
+    const ex = gx[0] - (2 * gx[n - 1] - gx[n - 2]), ey = gy[0] - (2 * gy[n - 1] - gy[n - 2]);
+    for (let j = Math.floor(n * 0.75); j < n; j += 1) {
+      const x = (j / n - 0.75) / 0.25, w = x * x * (3 - 2 * x);
+      gx[j] += ex * w; gy[j] += ey * w;
+    }
+    smooth(2);
+  }
+  const M = loop ? n : n - 1;
+  const X = (j) => gx[j % n], Y = (j) => gy[j % n];
+  let eps = Math.max(2, 0.006 * Math.max(S.scene.width, S.scene.height));
+  let keep;
+  for (let tries = 0; tries < 12; tries += 1) {
+    keep = new Set([0, M]);
+    const rdp = (a, b) => {
+      let best = -1, bi = -1;
+      for (let j = a + 1; j < b; j += 1) {
+        const w = (j - a) / (b - a);
+        const d = Math.hypot(X(j) - (X(a) + (X(b) - X(a)) * w), Y(j) - (Y(a) + (Y(b) - Y(a)) * w));
+        if (d > best) { best = d; bi = j; }
+      }
+      if (best > eps) { keep.add(bi); rdp(a, bi); rdp(bi, b); }
+    };
+    rdp(0, M);
+    if (keep.size <= 25) break;
+    eps *= 1.4;
+  }
+  let idx = [...keep].filter((j) => !loop || j < n).sort((a, b) => a - b);
+  if (loop && idx.length < 3) idx = [0, Math.round(n / 3), Math.round((2 * n) / 3)];
+  return idx.map((j) => ({
+    t: round(j / n, 4), dx: round(gx[j], 1), dy: round(gy[j], 1),
+    rot: pose.rot ?? 0, sc: pose.sc ?? 1, op: pose.op ?? 1, ease: 'fluido',
+  }));
+}
+function recPointer(vx, vy) {
+  const r = S.rec;
+  const s = S.settings.layers[r.i];
+  const B = s.base || defaultBase();
+  const [wx, wy] = V2W(vx, vy);
+  S.editPose.dx = wx - r.grab[0] - (s.pivot.x + (B.dx || 0));
+  S.editPose.dy = wy - r.grab[1] - (s.pivot.y + (B.dy || 0));
+  r.need = true;
 }
 
 /* Detección de clic por transparencia (mapa chiquito de alfa por capa). */
@@ -1227,13 +1564,41 @@ view.addEventListener('pointerdown', (e) => {
     return;
   }
   const near = (p, r) => Math.hypot(p[0] - vx, p[1] - vy) < r * dpr;
+  if (S.rec) {
+    // Grabando: agarrás la capa desde donde toques, y la seguís arrastrando.
+    const [wx, wy] = V2W(vx, vy);
+    const [qx, qy] = pivotWorld(S.rec.i);
+    S.rec.grab = [wx - qx, wy - qy];
+    S.rec.down = true;
+    drag = { kind: 'rec' };
+    return;
+  }
+  if (S.pick && S.sel === S.pick.i) {
+    S.pick = null;
+    view.style.cursor = '';
+    setOrbitCenter(S.sel, 'point', null, V2W(vx, vy));
+    return;
+  }
   let kind = null;
+  const oh = S.sel >= 0 ? S._orbitH : null;
+  if (oh && near(oh.hx, 12)) kind = 'orx';
+  else if (oh && near(oh.hy, 12)) kind = 'ory';
+  else if (oh && oh.point && near(oh.c, 14)) kind = 'octr';
+  if (kind) { drag = { kind, C: oh.C, moved: false }; setPlaying(false); return; }
   if (S.sel >= 0) {
     const h = handlesOf(S.sel);
-    if (near(h.pivot, 12)) kind = 'pivot';
+    // En capas chiquitas el pivote tapa todo: ahí se agarra con Alt, y si no, se mueve la capa.
+    const xs = h.corners.map((c) => c[0]), ys = h.corners.map((c) => c[1]);
+    const tiny = Math.max(...xs) - Math.min(...xs) < 48 * dpr && Math.max(...ys) - Math.min(...ys) < 48 * dpr;
+    if (near(h.pivot, 12) && (!tiny || e.altKey)) kind = 'pivot';
     else if (near(h.rot, 13)) kind = 'rotate';
     else if (h.corners.some((c) => near(c, 12))) kind = 'scale';
-    else if (insideBox(S.sel, vx, vy) && hitTest(vx, vy) === S.sel) kind = 'move';
+    else if (insideBox(S.sel, vx, vy)) {
+      // Dentro del recuadro de la elegida: se mueve ella, salvo que toques otra capa chica encima.
+      const ht = hitTest(vx, vy);
+      const big = (k) => { const L = S.scene.layers[k]; return L.w * L.h > S.scene.width * S.scene.height * 0.5; };
+      if (ht === S.sel || ht < 0 || big(ht)) kind = 'move';
+    }
   }
   if (!kind) {
     const hit = hitTest(vx, vy);
@@ -1251,7 +1616,7 @@ view.addEventListener('pointerdown', (e) => {
   drag = {
     kind, x: e.clientX, y: e.clientY, vx, vy, moved: false, shift: e.shiftKey,
     start: { dx: T.dx || 0, dy: T.dy || 0, rot: T.rot || 0, sc: T.sc ?? 1 },
-    pv: h.pivot, set: s,
+    pv: h.pivot, set: s, q0: pivotWorld(S.sel),
   };
 });
 view.addEventListener('pointermove', (e) => {
@@ -1262,6 +1627,10 @@ view.addEventListener('pointermove', (e) => {
       const vx = e.offsetX * dpr, vy = e.offsetY * dpr;
       const h = handlesOf(S.sel);
       const near = (p, r) => Math.hypot(p[0] - vx, p[1] - vy) < r * dpr;
+      const oh = S._orbitH;
+      if (S.pick || S.rec) { view.style.cursor = S.rec ? 'grab' : 'crosshair'; return; }
+      if (oh && (near(oh.hx, 12) || near(oh.hy, 12))) { view.style.cursor = 'ew-resize'; return; }
+      if (oh && oh.point && near(oh.c, 14)) { view.style.cursor = 'move'; return; }
       view.style.cursor = near(h.pivot, 12) ? 'crosshair' : near(h.rot, 13) ? 'alias' : h.corners.some((c) => near(c, 12)) ? 'nwse-resize' : insideBox(S.sel, vx, vy) ? 'move' : '';
     } else view.style.cursor = '';
     return;
@@ -1274,6 +1643,21 @@ view.addEventListener('pointermove', (e) => {
     S.settings.out.panX = drag.panX + (e.clientX - drag.x) / view.clientWidth;
     S.settings.out.panY = drag.panY + (e.clientY - drag.y) / view.clientHeight;
     S.dirty = true;
+    return;
+  }
+  if (drag.kind === 'rec') {
+    if (S.rec) recPointer(e.offsetX * dpr, e.offsetY * dpr);
+    return;
+  }
+  if (drag.kind === 'orx' || drag.kind === 'ory' || drag.kind === 'octr') {
+    const b = S.settings.layers[S.sel].beh;
+    const [wx, wy] = V2W(e.offsetX * dpr, e.offsetY * dpr);
+    if (drag.kind === 'octr') { b.cx = round(wx); b.cy = round(wy); } else {
+      const d = drag.kind === 'orx' ? Math.abs(wx - drag.C[0]) : Math.abs(wy - drag.C[1]);
+      if (e.shiftKey) { b.rx = round(d); b.ry = round(d); } else b[drag.kind === 'orx' ? 'rx' : 'ry'] = round(d);
+    }
+    drag.moved = true;
+    rebake();
     return;
   }
   if (drag.kind === 'pivot') {
@@ -1289,7 +1673,10 @@ view.addEventListener('pointermove', (e) => {
   setPlaying(false);
   const T = editTarget();
   const vx = e.offsetX * dpr, vy = e.offsetY * dpr;
-  if (drag.kind === 'move') {
+  if (drag.kind === 'move' && S.tool === 'ubicar' && orbitsOther(drag.set.beh)) {
+    // Gira alrededor de otra cosa: arrastrarla cambia la distancia y desde dónde arranca la vuelta.
+    fitOrbit(S.sel, drag.q0[0] + ddx, drag.q0[1] + ddy);
+  } else if (drag.kind === 'move') {
     T.dx = drag.start.dx + ddx;
     T.dy = drag.start.dy + ddy;
     if (e.shiftKey) { if (Math.abs(ddx) > Math.abs(ddy)) T.dy = drag.start.dy; else T.dx = drag.start.dx; }
@@ -1314,8 +1701,10 @@ view.addEventListener('pointerup', () => {
   const d = drag;
   drag = null;
   if (!d) return;
+  if (d.kind === 'rec') { if (S.rec) S.rec.down = false; return; }
   if (d.kind === 'pan') { saveSettingsSoon(); return; }
   if (!d.moved) return;
+  if (d.kind === 'orx' || d.kind === 'ory' || d.kind === 'octr') { changed(true); recordNow(); return; }
   if (S.tool === 'animar' && d.kind !== 'pivot') {
     if (S.autoKey) addKeyNow();
     else { renderProps(); flash('Pose lista · tocá “+ Clave” para guardarla en este momento'); }
@@ -1338,6 +1727,14 @@ window.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
   if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
+  if (S.rec) {
+    if (e.key === 'Escape') { e.preventDefault(); cancelRecording(); }
+    else if ((e.key === 'r' || e.key === 'R') && !mod) { e.preventDefault(); toggleRecording(); }
+    else if (e.code === 'Space') e.preventDefault();
+    return;
+  }
+  if ((e.key === 'r' || e.key === 'R') && !mod && S.scene) { e.preventDefault(); toggleRecording(); return; }
+  if (e.key === 'Escape' && S.pick) { S.pick = null; view.style.cursor = ''; flash('Listo, no se cambió el centro'); renderProps(); return; }
   if (e.code === 'Space' && S.scene) { e.preventDefault(); setPlaying(!S.playing); }
   if (e.key === 'Escape') { if (S.editPose) dropDraft(true); else select(-1); }
   if ((e.key === 'Delete' || e.key === 'Backspace') && S.selKey && S.sel >= 0) { e.preventDefault(); deleteKey(S.settings.layers[S.sel], S.selKey); }
@@ -1376,4 +1773,4 @@ updateUndo();
   setStatus('Importá tu ilustración por capas');
 })();
 
-window.__escena = { S, handleFiles, startExport, setTab, select, applySettingsJson, settingsJson, openBuiltin, openLastImport, resetBuiltin, setTool, addKeyNow, undo, redo, handlesOf, renderProps };
+window.__escena = { S, handleFiles, startExport, setTab, select, applySettingsJson, settingsJson, openBuiltin, openLastImport, resetBuiltin, setTool, addKeyNow, undo, redo, handlesOf, renderProps, startRecording, finishRecording, cancelRecording, setOrbitCenter, pivotWorld, orbitCenterNow, V2W, W2V };

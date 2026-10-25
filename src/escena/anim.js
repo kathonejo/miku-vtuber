@@ -7,6 +7,7 @@ const DEG = Math.PI / 180;
 
 const EASE = {
   linear: (x) => x,
+  fluido: (x) => x,
   sine: (x) => 0.5 - 0.5 * Math.cos(Math.PI * x),
   inout: (x) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2),
   back: (x) => {
@@ -111,12 +112,44 @@ function kfPose(set, t, D, loop) {
   return { dx: L('dx'), dy: L('dy'), rot: L('rot'), sc: L('sc'), op: L('op') };
 }
 
+/** ¿Orbita alrededor de otra cosa (otra capa o un punto) en vez de su propio lugar? */
+export function orbitsOther(b) {
+  return b?.type === 'orbitar' && (b.center === 'layer' || b.center === 'point');
+}
+/** Vueltas por loop de una órbita (entero con loop perfecto). */
+export function orbitCycles(b, D, loop) {
+  if (loop && b.turns) return Math.max(1, Math.round(b.turns));
+  return cyclesFor(b.period, D, loop);
+}
+/** Ángulo de la órbita en el tiempo t (sin el ángulo de arranque), en radianes. */
+export function orbitAngle(set, t, D, loop) {
+  const b = set.beh || {};
+  const u = frac((orbitCycles(b, D, loop) * t) / D + (set.phase || 0));
+  return (b.dir === -1 ? -1 : 1) * TAU * u;
+}
+/** Punto (en coordenadas del archivo) que usa una capa como centro de su órbita. */
+export function orbitCenterPoint(scene, set) {
+  const b = set.beh || {};
+  if (b.center === 'point') return [b.cx ?? scene.width / 2, b.cy ?? scene.height / 2];
+  const L = scene.layers[b.centerLayer];
+  if (!L) return [scene.width / 2, scene.height / 2];
+  return [L.x + L.w / 2, L.y + L.h / 2];
+}
+export function orbitCenterLocal(scene, settings, set) {
+  const b = set.beh || {};
+  if (b.center === 'layer' && b.centerUse === 'pivote') {
+    const cs = settings.layers[b.centerLayer];
+    if (cs?.pivot) return [cs.pivot.x, cs.pivot.y];
+  }
+  return orbitCenterPoint(scene, set);
+}
+
 /** Parte sin resorte: pose (claves o la que se está editando) + comportamiento. */
 function baseAt(layer, set, t, D, loop, edit, keys) {
   const b = set.beh || { type: 'none' };
   const curve = b.type === 'recorrido';
   const pose = edit || keyPose(keys, frac(t / D), loop, curve) || kfPose(set, t, D, loop) || { dx: 0, dy: 0, rot: 0, sc: 1, op: 1 };
-  const c = cyclesFor(b.period, D, loop);
+  const c = b.type === 'orbitar' ? orbitCycles(b, D, loop) : cyclesFor(b.period, D, loop);
   const u = frac((c * t) / D + set.phase);
   const w = TAU * u;
   const out = { dx: pose.dx, dy: pose.dy, rot: pose.rot * DEG, sc: pose.sc, op: pose.op, glow: 0, wind: 0, drift: 0 };
@@ -125,6 +158,9 @@ function baseAt(layer, set, t, D, loop, edit, keys) {
     out.dx += b.amp * 0.3 * Math.cos(w + 0.7);
     out.rot += (b.rot || 0) * DEG * Math.sin(w + 1.1);
     if (b.pulse) out.sc *= 1 + b.pulse * Math.sin(w + 0.4);
+  } else if (b.type === 'orbitar' && orbitsOther(b)) {
+    // la posición la pone bake(), que conoce dónde está el centro en cada momento
+    if (b.spin) out.rot += (b.dir === -1 ? -1 : 1) * w;
   } else if (b.type === 'orbitar') {
     const dir = b.dir === -1 ? -1 : 1;
     out.dx += (b.rx || 0) * Math.cos(dir * w);
@@ -188,6 +224,8 @@ function order(layers, sets) {
     if (done.has(i) || depth > layers.length) return;
     const p = sets[i].parent;
     if (p != null && p !== i && sets[p]) visit(p, depth + 1);
+    const ob = sets[i].beh;
+    if (orbitsOther(ob) && ob.center === 'layer' && ob.centerLayer !== i && sets[ob.centerLayer]) visit(ob.centerLayer, depth + 1);
     done.add(i);
     out.push(i);
   };
@@ -219,6 +257,24 @@ export function bake(scene, settings, edit = null) {
     const base = new Array(N);
     for (let k = 0; k < N; k += 1) base[k] = baseAt(layer, set, (k / N) * D, D, loop, pose, keys);
     const b = set.beh || {};
+    if (orbitsOther(b)) {
+      // Órbita alrededor de otra capa (que puede moverse) o de un punto fijo.
+      const [lx, ly] = orbitCenterLocal(scene, settings, set);
+      const C = b.center === 'layer' && b.centerLayer !== i ? out[b.centerLayer] : null;
+      const rx = b.rx || 0, ry = b.ry || 0, a0 = b.a0 || 0;
+      const restX = set.pivot.x + (B.dx || 0), restY = set.pivot.y + (B.dy || 0);
+      for (let k = 0; k < N; k += 1) {
+        let cx = lx, cy = ly;
+        if (C) {
+          const j = k * 6, m = C.mats;
+          cx = m[j] * lx + m[j + 2] * ly + m[j + 4];
+          cy = m[j + 1] * lx + m[j + 3] * ly + m[j + 5];
+        }
+        const ang = a0 + orbitAngle(set, (k / N) * D, D, loop);
+        base[k].dx += cx + rx * Math.cos(ang) - restX;
+        base[k].dy += cy + ry * Math.sin(ang) - restY;
+      }
+    }
     const isSway = b.type === 'balanceo';
     const follow = parent ? Math.max(0, set.follow || 0) : 0;
     // Resorte: se simula 3 loops para llegar al régimen estable y se guarda el último.
