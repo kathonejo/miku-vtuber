@@ -6,7 +6,7 @@ import {
 } from './model.js';
 import { bake, cyclesFor, frac, keyPose, orbitAngle, orbitCenterLocal, orbitsOther, sample, sortedKeys } from './anim.js';
 import { renderFrame, viewMatrix } from './render.js';
-import { exportVideo } from './exporter.js';
+import { ExportCancelled, exportVideo } from './exporter.js';
 import * as store from './store.js';
 import { listBuiltins, loadBuiltin } from './builtins.js';
 
@@ -52,6 +52,8 @@ const S = {
   recOrient: false,
   pick: null, // eligiendo el centro de una órbita con un clic
 };
+
+let lastExport = null; // { blob, url, name, ext, realtime } — el último video, para volver a bajarlo
 
 /* ---------- estructura ---------- */
 const app = $('#sc-app');
@@ -121,14 +123,18 @@ const propsPane = el('aside', { class: 'sc-props' }, tabs, props);
 
 const layout = el('main', { class: 'sc-layout' }, layersPane, stage, propsPane);
 const progress = el('div', { class: 'sc-progress', hidden: true },
-  el('div', { class: 'sc-card' },
+  el('div', { class: 'sc-card', role: 'dialog', 'aria-live': 'polite' },
     el('h2', { class: 'sc-progress-title' }, 'Exportando…'),
     el('div', { class: 'sc-bar' }, el('i')),
     el('p', { class: 'sc-progress-text' }, ''),
+    el('p', { class: 'sc-progress-note sc-hint', hidden: true }, ''),
+    el('video', { class: 'sc-progress-video', controls: true, playsinline: true, muted: true, loop: true, hidden: true }),
     el('div', { class: 'sc-card-actions' },
-      el('button', { type: 'button', class: 'sc-progress-cancel', onclick: () => { S.cancel = true; } }, 'Cancelar'),
-      el('a', { class: 'btn primary sc-progress-dl', hidden: true }, 'Descargar'),
-      el('button', { type: 'button', class: 'sc-progress-close', hidden: true, onclick: () => { progress.hidden = true; } }, 'Cerrar'))));
+      el('button', { type: 'button', class: 'sc-progress-cancel', onclick: () => { S.cancel = true; $('.sc-progress-text', progress).textContent = 'Cancelando…'; } }, 'Cancelar'),
+      el('a', { class: 'btn primary big sc-progress-dl', hidden: true }, 'Descargar video'),
+      el('button', { type: 'button', class: 'primary sc-progress-share', hidden: true, onclick: () => shareExport() }, 'Guardar en el dispositivo'),
+      el('a', { class: 'btn sc-progress-open', hidden: true, target: '_blank', rel: 'noopener' }, 'Abrir video'),
+      el('button', { type: 'button', class: 'sc-progress-close', hidden: true, onclick: () => { progress.hidden = true; $('.sc-progress-video', progress).pause(); } }, 'Cerrar'))));
 app.append(top, layout, progress);
 
 /* ---------- importación ---------- */
@@ -880,7 +886,8 @@ function renderExportProps() {
     }, (v) => `${v} Mbps`),
     el('p', { class: 'sc-size sc-hint' }, sizeText(mbps)),
     el('p', { class: 'sc-hint' }, `${w}×${h} · ${s.fps} cuadros/s · ${s.duration} s${s.loop ? ' · loop perfecto' : ''}`)),
-  el('div', { class: 'sc-export-go' }, btn('Exportar MP4', 'Arma el video cuadro por cuadro (puede tardar unos minutos)', startExport, 'primary big')));
+  el('div', { class: 'sc-export-go' }, btn('Exportar MP4', 'Arma el video cuadro por cuadro (puede tardar unos minutos)', startExport, 'primary big'),
+    lastExport ? btn(`⬇ Ver y descargar el último (${lastExport.name})`, 'Vuelve a mostrar el último video que armaste', showExportResult, 'sc-last-export') : null));
   void mb;
 }
 
@@ -890,6 +897,75 @@ function sizeText(mbps) {
 }
 
 /* ---------- exportar ---------- */
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function exportFileName(ext, w, h) {
+  const base = String(S.scene?.name || 'escena').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') || 'escena';
+  return `${base}_${w}x${h}_${S.settings.duration}s.${ext}`;
+}
+
+function canShareFile(file) {
+  try { return !!(navigator.canShare && navigator.share && navigator.canShare({ files: [file] })); } catch { return false; }
+}
+
+async function shareExport() {
+  if (!lastExport) return;
+  const file = new File([lastExport.blob], lastExport.name, { type: lastExport.blob.type });
+  try {
+    await navigator.share({ files: [file], title: lastExport.name });
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    $('.sc-progress-note', progress).hidden = false;
+    $('.sc-progress-note', progress).textContent = 'No pude abrir el menú para guardar. Probá con “Abrir video” y mantené apretado el video para guardarlo.';
+  }
+}
+
+/** Muestra el video terminado con botones visibles para bajarlo (no depende de una descarga automática). */
+function showExportResult() {
+  const r = lastExport;
+  const dl = $('.sc-progress-dl', progress);
+  const share = $('.sc-progress-share', progress);
+  const open = $('.sc-progress-open', progress);
+  const video = $('.sc-progress-video', progress);
+  const note = $('.sc-progress-note', progress);
+  progress.hidden = false;
+  $('.sc-bar i', progress).style.width = '100%';
+  $('.sc-progress-title', progress).textContent = '¡Listo! Tu video está armado';
+  $('.sc-progress-text', progress).textContent = `${r.name} · ${(r.blob.size / 1e6).toFixed(1)} MB`;
+  dl.href = r.url;
+  dl.download = r.name;
+  dl.textContent = `⬇ Descargar ${r.ext.toUpperCase()} (${(r.blob.size / 1e6).toFixed(1)} MB)`;
+  dl.hidden = false;
+  open.href = r.url;
+  const file = new File([r.blob], r.name, { type: r.blob.type });
+  share.hidden = !(IS_IOS && canShareFile(file));
+  open.hidden = !IS_IOS;
+  video.src = r.url;
+  video.hidden = false;
+  const notes = [];
+  if (r.ext === 'webm') notes.push('Este navegador sólo arma WebM. Para MP4 abrí la página en Chrome o Edge en una computadora.');
+  if (r.realtime) notes.push('Se grabó en tiempo real: si se ve a saltos, exportalo en Chrome o Edge.');
+  if (IS_IOS && !share.hidden) notes.push('En iPad/iPhone: tocá “Guardar en el dispositivo” y elegí “Guardar video” o “Guardar en Archivos”.');
+  else if (IS_IOS) notes.push('En iPad/iPhone: tocá “Descargar” (queda en Archivos › Descargas) o “Abrir video” y usá el botón compartir › “Guardar video”.');
+  else notes.push('Se guarda en tu carpeta de Descargas. Si no aparece, tocá el botón de nuevo.');
+  note.textContent = notes.join(' ');
+  note.hidden = false;
+  $('.sc-progress-cancel', progress).hidden = true;
+  $('.sc-progress-close', progress).hidden = false;
+}
+
+function exportErrorText(err) {
+  const msg = String(err?.message || err || '');
+  if (err?.name === 'QuotaExceededError' || /memory|memoria|allocation|out of/i.test(msg)) {
+    return 'Se quedó sin memoria. Elegí un tamaño más chico (por ejemplo 16:9 · 1920×1080), cerrá otras pestañas y probá de nuevo.';
+  }
+  if (/NotSupported|not supported|codec/i.test(msg)) {
+    return `Este navegador no pudo codificar el video (${msg}). Probá con Chrome o Edge en una computadora, o con un tamaño más chico.`;
+  }
+  return `Algo falló al armar el video: ${msg || 'error desconocido'}. Probá de nuevo; si sigue, elegí un tamaño más chico o usá Chrome.`;
+}
+
 async function startExport() {
   if (S.exporting) return;
   const s = S.settings;
@@ -898,30 +974,36 @@ async function startExport() {
   S.exporting = true;
   S.cancel = false;
   const wasPlaying = S.playing;
-  if (S.fullReady && S.scene.layers.some((l) => l.preview)) {
-    progress.hidden = false;
-    $('.sc-progress-title', progress).textContent = 'Preparando las capas…';
-    $('.sc-progress-text', progress).textContent = 'Termino de bajar el dibujo en calidad completa y arranco.';
-    $('.sc-progress-dl', progress).hidden = true;
-    $('.sc-progress-close', progress).hidden = true;
-    try { await S.fullReady; } catch { /* se exporta con lo que haya */ }
-  }
-  setPlaying(false);
-  S.editPose = null;
-  rebake();
-  progress.hidden = false;
   const bar = $('.sc-bar i', progress);
+  const title = $('.sc-progress-title', progress);
   const txt = $('.sc-progress-text', progress);
-  const dl = $('.sc-progress-dl', progress);
-  $('.sc-progress-title', progress).textContent = 'Exportando video…';
+  const note = $('.sc-progress-note', progress);
+  const video = $('.sc-progress-video', progress);
+  for (const sel of ['.sc-progress-dl', '.sc-progress-share', '.sc-progress-open', '.sc-progress-close']) $(sel, progress).hidden = true;
+  video.hidden = true;
+  video.removeAttribute('src');
   $('.sc-progress-cancel', progress).hidden = false;
-  $('.sc-progress-close', progress).hidden = true;
-  dl.hidden = true;
+  bar.style.width = '0%';
+  note.hidden = false;
+  note.textContent = 'Dejá esta pestaña abierta y al frente mientras se arma.';
+  progress.hidden = false;
+  if (lastExport) { URL.revokeObjectURL(lastExport.url); lastExport = null; }
   const t0 = performance.now();
   try {
+    if (S.fullReady && S.scene.layers.some((l) => l.preview)) {
+      title.textContent = 'Preparando las capas…';
+      txt.textContent = 'Termino de bajar el dibujo en calidad completa y arranco.';
+      try { await S.fullReady; } catch { note.textContent = 'No pude bajar todo en calidad completa; exporto con lo que hay.'; }
+      if (S.cancel) throw new ExportCancelled();
+    }
+    setPlaying(false);
+    S.editPose = null;
+    rebake();
+    title.textContent = 'Exportando video…';
     const res = await exportVideo({
       scene: S.scene, settings: s, baked: S.baked, w, h, mbps,
       isCancelled: () => S.cancel,
+      onStage: (t) => { note.textContent = t; },
       onProgress: (p) => {
         bar.style.width = `${Math.round(p * 100)}%`;
         const el2 = (performance.now() - t0) / 1000;
@@ -929,21 +1011,24 @@ async function startExport() {
         txt.textContent = `${Math.round(p * 100)}% · cuadro ${Math.round(p * s.duration * s.fps)} de ${Math.round(s.duration * s.fps)}${left ? ` · faltan ~${Math.ceil(left)} s` : ''}`;
       },
     });
-    const name = `${S.scene.name}_${w}x${h}_${s.duration}s.${res.ext}`;
-    dl.href = URL.createObjectURL(res.blob);
-    dl.download = name;
-    dl.hidden = false;
-    dl.textContent = `Descargar ${res.ext.toUpperCase()} (${(res.blob.size / 1e6).toFixed(1)} MB)`;
-    $('.sc-progress-title', progress).textContent = '¡Listo!';
-    txt.textContent = `${name}${res.ext === 'webm' ? ' · este navegador no arma MP4; probá con Chrome o Edge' : ''}`;
-    dl.click();
+    const name = exportFileName(res.ext, w, h);
+    lastExport = { blob: res.blob, url: URL.createObjectURL(res.blob), name, ext: res.ext, realtime: res.realtime };
+    showExportResult();
+    renderProps();
+    if (!IS_IOS) {
+      // Intento de descarga automática; si el navegador la frena, queda el botón visible.
+      try { $('.sc-progress-dl', progress).click(); } catch { /* queda el botón */ }
+    }
   } catch (err) {
-    $('.sc-progress-title', progress).textContent = S.cancel ? 'Cancelado' : 'No se pudo exportar';
-    txt.textContent = S.cancel ? '' : String(err.message || err);
-  } finally {
-    S.exporting = false;
+    const cancelled = S.cancel || err instanceof ExportCancelled;
+    if (!cancelled) console.error('Exportar', err);
+    title.textContent = cancelled ? 'Cancelado' : 'No se pudo exportar';
+    txt.textContent = cancelled ? 'No se guardó nada.' : exportErrorText(err);
+    note.hidden = true;
     $('.sc-progress-cancel', progress).hidden = true;
     $('.sc-progress-close', progress).hidden = false;
+  } finally {
+    S.exporting = false;
     if (wasPlaying) setPlaying(true);
   }
 }

@@ -232,3 +232,10 @@ body.tool-animar .sc-view { box-shadow: 0 0 0 2px rgba(255, 184, 107, .5); }
 .sc-help-item + .sc-help-item { margin-top: 10px; }
 .sc-help-item strong { color: var(--gold); display: block; margin-bottom: 2px; }
 .sc-help-item ol { margin: 0; padding-left: 18px; }
+
+.sc-progress-video { display: block; width: 100%; max-height: 38vh; margin: 4px 0 12px; border-radius: 8px; background: #000; }
+.sc-progress-note { margin: 0 0 12px; }
+.sc-progress .sc-progress-dl { text-decoration: none; }
+.sc-last-export { width: 100%; margin-top: 10px; font-size: .85rem; white-space: normal; }
+.sc-progress .sc-card { max-height: 94vh; overflow: auto; }
+.sc-progress a.btn, .sc-progress a.btn:visited { color: inherit; text-decoration: none; }
