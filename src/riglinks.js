@@ -1,7 +1,7 @@
 /** "Sigue a" y la sección Cuello del panel de rigging. */
 
 import { wouldCycle } from './rigchain.js';
-import { emptyRig, partTitle } from './rigparams.js';
+import { emptyRig, pairLeader, partTitle } from './rigparams.js';
 
 export function attachRigLinks(opts) {
   const { doc, body, puppet, say, getSelected, commit, store, isOpen } = opts;
@@ -62,9 +62,11 @@ export function attachRigLinks(opts) {
   }
 
   function onParent(event) {
-    const id = getSelected();
     const manifest = puppet.getManifest();
-    const part = manifest?.byId?.[id];
+    const picked = manifest?.byId?.[getSelected()];
+    // la línea de un par sigue a su color: el padre se cambia en el color
+    const part = pairLeader(picked, manifest?.byId) || picked;
+    const id = part?.id;
     const value = event.target.value;
     if (!part) return;
     if (wouldCycle(id, value, manifest.byId)) {
@@ -85,7 +87,9 @@ export function attachRigLinks(opts) {
     const manifest = puppet.getManifest();
     const id = getSelected();
     if (!select || !manifest) return;
-    const part = manifest.byId?.[id];
+    const picked = manifest.byId?.[id];
+    const part = pairLeader(picked, manifest.byId) || picked;
+    const own = part?.id || id;
     select.replaceChildren();
     const add = (value, label) => {
       const option = doc.createElement('option');
@@ -96,8 +100,8 @@ export function attachRigLinks(opts) {
     add('body', 'Cuerpo');
     add('head', 'Cabeza');
     for (const item of manifest.parts || []) {
-      if (!item?.id || item.id === id || item.id === 'body' || item.role === 'mouth' || item.id === 'mouth') continue;
-      if (wouldCycle(id, item.id, manifest.byId)) continue;
+      if (!item?.id || item.id === own || item.id === id || item.id === 'body' || item.role === 'mouth' || item.id === 'mouth') continue;
+      if (wouldCycle(own, item.id, manifest.byId)) continue;
       add(item.id, partTitle(item));
     }
     let current = part?.parent;

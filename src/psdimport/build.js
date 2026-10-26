@@ -354,6 +354,7 @@ export function composeManifest(mapping) {
         ? neckPoint.slice()
         : (layer.pivot || [r2(layer.x + layer.w / 2), r2(layer.y + layer.h / 2)]);
     const extra = { psdName: layer.name, parent, role, pivot, visibleInPsd: !layer.hidden, id };
+    if (leader) extra.pairOf = leader.id;
     if (parent === 'head' && role === 'static') extra.parallax = [0, 0];
     if (role === 'tail') extra.motion = { sway: 4, speed: 0.35, stiffness: 55, damping: 5, gravity: 0, follow: 1, limit: 12 };
     // orejas: resorte con vaivén suave (como la Conejita azul), la derecha un poco desfasada

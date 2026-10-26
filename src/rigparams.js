@@ -347,6 +347,32 @@ export function collectOverrides(parts) {
   return out;
 }
 
+/** Color de un par línea/color: la pieza que manda (pivote, padre y movimiento). */
+export function pairLeader(part, byId) {
+  const id = part?.pairOf;
+  if (typeof id !== 'string' || !id || id === part.id) return null;
+  const lead = byId ? byId[id] : null;
+  return lead && lead.id === id ? lead : null;
+}
+
+/**
+ * Pares línea/color: la línea gira con su color como una sola pieza. Mismo pivote,
+ * hija de su color y sin pose propia (sólo puede ocultarse), aunque haya ajustes viejos.
+ */
+export function lockPairs(manifest) {
+  const parts = manifest?.parts || [];
+  const byId = Object.fromEntries(parts.filter((p) => p?.id).map((p) => [p.id, p]));
+  for (const part of parts) {
+    const lead = pairLeader(part, byId);
+    if (!lead) continue;
+    part.parent = lead.id;
+    if (Array.isArray(lead.pivot)) part.pivot = [+lead.pivot[0], +lead.pivot[1]];
+    const visible = part.rig?.visible !== false;
+    part.rig = { ...sanitizeRig({}, part), visible };
+  }
+  return manifest;
+}
+
 export function applyOverrides(manifest, data) {
   if (!manifest || !data) return manifest;
   const norm = fitStore(manifest, data);
@@ -355,6 +381,7 @@ export function applyOverrides(manifest, data) {
     const raw = norm.parts[part.id];
     if (raw && typeof raw === 'object') applyPartOverride(part, raw);
   }
+  lockPairs(manifest);
   if (norm.blink) manifest.squashBlink = norm.blink.squash;
   if (norm.eyeLine) manifest.eyeLine = { ...(manifest.eyeLine || {}), ...norm.eyeLine };
   if (norm.neck && manifest.neck) {

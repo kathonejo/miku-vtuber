@@ -8,6 +8,7 @@ import {
   hasMotion,
   movePart,
   normalizeStore,
+  pairLeader,
   partTitle,
   saveOverrides,
 } from './rigparams.js';
@@ -54,6 +55,12 @@ export function createRigEditor(doc, puppet, toast) {
     return puppet.getManifest()?.byId?.[selected] || null;
   }
 
+  /** La pieza que manda: el color si la elegida es la línea de un par. */
+  function lead() {
+    const item = part();
+    return pairLeader(item, puppet.getManifest()?.byId) || item;
+  }
+
   function store() {
     const norm = normalizeStore(puppet.getStore());
     if (!norm.order?.length) norm.order = (puppet.getManifest()?.parts || []).map((item) => item.id);
@@ -66,8 +73,14 @@ export function createRigEditor(doc, puppet, toast) {
   }
 
   function set(id, params) {
-    const current = puppet.getManifest()?.byId?.[id];
+    let current = puppet.getManifest()?.byId?.[id];
     if (!current) return false;
+    // la línea de un par se mueve con su color: pivote y pose van al color
+    const lead = pairLeader(current, puppet.getManifest()?.byId);
+    if (lead && Object.keys(params).some((key) => key !== 'visible')) {
+      current = lead;
+      id = lead.id;
+    }
     const next = store();
     const prev = next.parts[id] || { ...(current.rig || emptyRig(current)) };
     if (Array.isArray(current.pivot)) prev.pivot = [+current.pivot[0], +current.pivot[1]];
@@ -83,7 +96,7 @@ export function createRigEditor(doc, puppet, toast) {
   }
 
   function nearPivot(pt) {
-    const item = part();
+    const item = lead();
     if (!item || !Array.isArray(item.pivot)) return false;
     const parent = puppet.parentPoint(pt.x, pt.y, item.id);
     if (!parent) return false;
@@ -263,7 +276,8 @@ export function createRigEditor(doc, puppet, toast) {
   function sync() {
     const item = part();
     if (!item || !built) return;
-    const rig = item.rig || emptyRig(item);
+    const owner = lead() || item;
+    const rig = owner.rig || emptyRig(owner);
     const selectEl = body.querySelector('#rig-part');
     if (selectEl && selectEl.value !== item.id) selectEl.value = item.id;
     for (const input of body.querySelectorAll('input[data-key]')) {
@@ -274,7 +288,7 @@ export function createRigEditor(doc, puppet, toast) {
       if (label) label.textContent = value.toFixed(Math.abs(value) >= 10 || Number.isInteger(value) ? 0 : 2);
     }
     const box = body.querySelector('#rig-visible');
-    if (box) box.checked = rig.visible !== false;
+    if (box) box.checked = item.rig?.visible !== false;
     const squash = body.querySelector('#rig-squash');
     if (squash) squash.checked = puppet.getManifest()?.squashBlink === true;
     const line = body.querySelector('#rig-eyeline');
@@ -292,7 +306,7 @@ export function createRigEditor(doc, puppet, toast) {
       }
     }
     const motion = body.querySelector('#rig-motion');
-    if (motion) motion.hidden = !hasMotion(item);
+    if (motion) motion.hidden = !hasMotion(owner);
     const preview = body.querySelector('#rig-preview');
     if (preview) preview.setAttribute('aria-pressed', String(previewOn));
     puppet.setHighlight(opened ? item.id : null);
@@ -358,7 +372,9 @@ export function createRigEditor(doc, puppet, toast) {
       return true;
     }
     const hit = puppet.hitTest(pt.x, pt.y);
-    if (hit) select(hit);
+    // tocar la línea de un par elige su color: se editan juntas como una pieza
+    const byId = puppet.getManifest()?.byId;
+    if (hit) select(pairLeader(byId?.[hit], byId)?.id || hit);
     return false;
   }
 
@@ -369,10 +385,12 @@ export function createRigEditor(doc, puppet, toast) {
     }
     if (!dragging || !selected) return;
     const pt = point(event);
-    const parent = puppet.parentPoint(pt.x, pt.y, selected);
+    const item = lead();
+    if (!item) return;
+    const parent = puppet.parentPoint(pt.x, pt.y, item.id);
     if (!parent) return;
-    const rig = part()?.rig || {};
-    set(selected, { pivot: [parent.x - (rig.dx || 0), parent.y - (rig.dy || 0)] });
+    const rig = item.rig || {};
+    set(item.id, { pivot: [parent.x - (rig.dx || 0), parent.y - (rig.dy || 0)] });
   }
 
   function onPointerUp() {

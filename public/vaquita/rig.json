@@ -57,10 +57,10 @@
    "x": 290.23,
    "y": 25.48,
    "w": 225.35,
-   "h": 224.14,
+   "h": 235.24,
    "px": [
     676,
-    672
+    706
    ],
    "id": "tail_color",
    "role": "tail",
@@ -101,7 +101,8 @@
    ],
    "psdName": [
     "vaca cola l"
-   ]
+   ],
+   "pairOf": "tail_color"
   },
   {
    "file": "/vaquita/leg_p3_color.png",
@@ -152,7 +153,8 @@
    ],
    "psdName": [
     "p3 l"
-   ]
+   ],
+   "pairOf": "leg_p3_color"
   },
   {
    "file": "/vaquita/leg_p_der_color.png",
@@ -203,7 +205,8 @@
    ],
    "psdName": [
     "p der"
-   ]
+   ],
+   "pairOf": "leg_p_der_color"
   },
   {
    "file": "/vaquita/leg_p2_der_color.png",
@@ -254,7 +257,8 @@
    ],
    "psdName": [
     "p 2 der l"
-   ]
+   ],
+   "pairOf": "leg_p2_der_color"
   },
   {
    "file": "/vaquita/neck.png",
@@ -335,7 +339,8 @@
    "parallax": [
     0,
     0
-   ]
+   ],
+   "pairOf": "ear_color_l"
   },
   {
    "file": "/vaquita/head_color.png",
@@ -468,7 +473,8 @@
    ],
    "psdName": [
     "p4 l"
-   ]
+   ],
+   "pairOf": "leg_p4_color"
   },
   {
    "file": "/vaquita/head_line.png",
@@ -553,7 +559,8 @@
    "parallax": [
     0,
     0
-   ]
+   ],
+   "pairOf": "ear_color_r"
   }
  ],
  "mouths": {},
@@ -746,5 +753,5 @@
   "ear_r"
  ],
  "build": "dae8e8cc505c",
- "art": "0d778749b225"
+ "art": "ebd32ad73c1c"
 }

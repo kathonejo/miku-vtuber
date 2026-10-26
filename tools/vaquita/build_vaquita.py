@@ -5,7 +5,8 @@ tamaño; nada se dibuja ni se deforma. Escribe public/vaquita/*.png y rig.json.
 
     python3 tools/vaquita/build_vaquita.py
 
-Capas del PSD (v2, de abajo hacia arriba): cada capa es su propia pieza, en el mismo
+Capas del PSD (v5_cola, de abajo hacia arriba; mismas 23 capas que v4, sólo 'vaca cola color'
+tiene más relleno en su base, escondido bajo el cuerpo, para que no se abra un hueco al mecerse): cada capa es su propia pieza, en el mismo
 orden del archivo. Los pares color + línea comparten pivote y movimiento:
   ' cuerpo color'                          -> body                 (quieto)
   'vaca cola color' / 'vaca cola l'        -> tail_color / tail    (resorte que se mece)
@@ -155,7 +156,9 @@ def part(pid, name, role, parent, pivot, **kw):
 
 
 # capa del PSD -> (id, rol, padre, pivote, extra). Los pares color/línea comparten pivote y
-# movimiento, así se mueven juntos pero siguen siendo capas separadas.
+# movimiento, así se mueven juntos pero siguen siendo capas separadas. 'pairOf' marca la línea
+# de un par: la app la deja siempre hija de su color, con su mismo pivote y sin pose propia
+# (aunque haya ajustes guardados viejos), así nunca se abre un corte entre línea y color.
 LEGS = {'p3': ('p3 color', 'p3 l'), 'p_der': ('p der color', 'p der'),
         'p2_der': ('p 2 der l color', 'p 2 der l'), 'p4': ('p4 color', 'p4 l')}
 leg_hip = {k: hip(over(IMG[c], IMG[l])) for k, (c, l) in LEGS.items()}
@@ -163,19 +166,19 @@ eye_l_c, eye_r_c = center(eye_l_img), center(eye_r_img)
 SPEC = {
     ' cuerpo color': ('body', 'static', 'body', FEET, {}),
     'vaca cola color': ('tail_color', 'tail', 'body', TAIL_BASE, {'motion': dict(TAIL_MOTION)}),
-    'vaca cola l': ('tail', 'static', 'tail_color', TAIL_BASE, {}),
+    'vaca cola l': ('tail', 'static', 'tail_color', TAIL_BASE, {'pairOf': 'tail_color'}),
     'cabeza cuello': ('neck', 'static', 'body', FEET, {}),
     'ore izq color': ('ear_color_l', 'ear', 'head', EAR_L_BASE, {'parallax': [0, 0], 'motion': dict(EAR_MOTION, phase=0)}),
-    'orej izq l': ('ear_l', 'static', 'ear_color_l', EAR_L_BASE, {'parallax': [0, 0]}),
+    'orej izq l': ('ear_l', 'static', 'ear_color_l', EAR_L_BASE, {'parallax': [0, 0], 'pairOf': 'ear_color_l'}),
     'cabeza color': ('head_color', 'static', 'head', NECK, {'parallax': [0, 0]}),
     'vaca cuerpo': ('body_line', 'static', 'body', FEET, {}),
     'cabeza': ('head_line', 'static', 'head', NECK, {'parallax': [0, 0]}),
     'oreja der color': ('ear_color_r', 'ear', 'head', EAR_R_BASE, {'parallax': [0, 0], 'motion': dict(EAR_MOTION, phase=0.25)}),
-    'oreja linea der': ('ear_r', 'static', 'ear_color_r', EAR_R_BASE, {'parallax': [0, 0]}),
+    'oreja linea der': ('ear_r', 'static', 'ear_color_r', EAR_R_BASE, {'parallax': [0, 0], 'pairOf': 'ear_color_r'}),
 }
 for k, (c, l) in LEGS.items():
     SPEC[c] = (f'leg_{k}_color', 'limb', 'body', leg_hip[k], {'motion': dict(LEG_MOTION)})
-    SPEC[l] = (f'leg_{k}', 'static', f'leg_{k}_color', leg_hip[k], {})
+    SPEC[l] = (f'leg_{k}', 'static', f'leg_{k}_color', leg_hip[k], {'pairOf': f'leg_{k}_color'})
 
 eye_l = save('eye_l_open.png', eye_l_img)
 eye_r = save('eye_r_open.png', eye_r_img)
@@ -299,7 +302,7 @@ manifest = {
 # no imponen su orden, padres ni pivotes
 manifest['build'] = hashlib.sha1(json.dumps(
     [[p['id'], p['parent'], p['pivot'], p.get('x'), p.get('y'), p.get('w'), p.get('h')] for p in parts]).encode()).hexdigest()[:12]
-# mismo armado que v3 (mismas piezas, padres y orden; sólo cambiaron píxeles): se conserva su
+# mismo armado que v3/v4 (mismas piezas, padres y orden; sólo cambiaron píxeles): se conserva su
 # huella para no descartar los ajustes guardados de la usuaria
 BUILD_PIN = ('dae8e8cc505c', '5711e0c5b937')
 _struct = hashlib.sha1(json.dumps([[p['id'], p['parent']] for p in parts]).encode()).hexdigest()[:12]
