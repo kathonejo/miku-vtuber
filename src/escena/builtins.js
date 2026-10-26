@@ -53,12 +53,14 @@ export async function loadBuiltin(id, { onPreview = () => {}, onFull = () => {} 
       opacity: l.opacity ?? 1, blend: l.blend || 'source-over', image: prev[i], preview: true,
     })),
   };
+  const own = scene.layers; // las copias (Duplicar) heredan de estas, así también pasan a calidad completa
   const full = loadAll(files.map((f) => `${dir}full/${f}`), weights, onFull, 6).then((imgs) => {
-    scene.layers.forEach((l, i) => {
+    own.forEach((l, i) => {
       l.image = imgs[i];
       l.preview = false;
       delete l._levels;
       delete l._glow;
+      delete l._hit;
     });
     return scene;
   });

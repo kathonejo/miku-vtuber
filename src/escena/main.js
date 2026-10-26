@@ -4,7 +4,7 @@ import {
   BEHAVIORS, EASINGS, OUTPUTS, PRESETS, applyPreset, autoMbps, defaultBase, defaultPivot, defaultPose,
   guessBehavior, isFragile, makeLayerSettings, makeSceneSettings, outputSize,
 } from './model.js';
-import { bake, cyclesFor, frac, keyPose, orbitAngle, orbitCenterLocal, orbitsOther, sample, sortedKeys } from './anim.js';
+import { bake, cyclesFor, frac, keyPose, orbitAngle, orbitCenterLocal, orbitsOther, sample, sortedKeys, withFlip } from './anim.js';
 import { renderFrame, viewMatrix } from './render.js';
 import { ExportCancelled, exportVideo } from './exporter.js';
 import * as store from './store.js';
@@ -144,6 +144,7 @@ stage.addEventListener('dragleave', () => stage.classList.remove('drop'));
 stage.addEventListener('drop', (e) => { e.preventDefault(); stage.classList.remove('drop'); handleFiles(e.dataTransfer.files); });
 
 function setStatus(text) { statusEl.textContent = text; }
+function recountStatus() { statusEl.textContent = statusEl.textContent.replace(/\d+ capas/, `${S.scene.layers.length} capas`); }
 
 async function handleFiles(list) {
   const files = [...(list || [])];
@@ -174,6 +175,7 @@ async function handleFiles(list) {
 }
 
 function openScene(scene, saved = null) {
+  restoreCopies(scene, saved);
   S.scene = scene;
   const settings = makeSceneSettings(scene);
   settings.layers = scene.layers.map((l, i) => makeLayerSettings(l, scene, i));
@@ -186,6 +188,7 @@ function openScene(scene, saved = null) {
   S.selKey = null;
   S.t = 0;
   hist.length = 0;
+  histLayers.length = 0;
   histAt = -1;
   empty.hidden = true;
   document.body.classList.add('has-scene');
@@ -283,6 +286,7 @@ async function openBuiltin(id) {
     S.fullReady = res.full.then(() => {
       if (token !== openToken) return;
       fullBadge.hidden = true;
+      for (const l of S.scene.layers) if (l.copyOf) { delete l._levels; delete l._glow; delete l._hit; delete l._thumb; }
       S.dirty = true;
       renderList();
     });
@@ -316,6 +320,10 @@ async function openLastImport() {
 function resetBuiltin() {
   if (!S.builtinJson) return;
   const json = S.builtinJson;
+  dropDraft();
+  recordNow();
+  if (S.scene.layers.some((l) => l.copyOf)) S.scene.layers = S.scene.layers.filter((l) => !l.copyOf);
+  recountStatus();
   const settings = makeSceneSettings(S.scene);
   settings.layers = S.scene.layers.map((l, i) => makeLayerSettings(l, S.scene, i));
   S.settings = settings;
@@ -324,6 +332,7 @@ function resetBuiltin() {
   S.sel = -1;
   resize();
   changed(true);
+  recordNow();
   flash('Volvió a como venía original');
 }
 
@@ -334,7 +343,7 @@ function settingsJson() {
     tipo: 'escena-bunny-vtuber', version: 2,
     escena: { nombre: S.scene.name, ancho: S.scene.width, alto: S.scene.height },
     duration: s.duration, loop: s.loop, fps: s.fps, effects: s.effects, out: s.out,
-    layers: S.scene.layers.map((l, i) => ({ name: l.name, group: l.group, ...s.layers[i] })),
+    layers: S.scene.layers.map((l, i) => ({ name: l.name, group: l.group, ...(l.copyOf ? { copyOf: l.copyOf } : {}), ...s.layers[i] })),
   };
 }
 
@@ -351,7 +360,7 @@ function applySettingsJson(json, quiet = false) {
     if (j < 0) j = json.layers.findIndex((x, k) => !used.has(k) && x.name === l.name);
     if (j < 0) return;
     used.add(j);
-    const { name, group, ...rest } = json.layers[j];
+    const { name, group, copyOf, ...rest } = json.layers[j];
     // Versión 1: "Mover poco" venía prendido en muchas capas; ahora arranca apagado (se sugiere con ⚠).
     if ((json.version || 1) < 2) rest.poco = false;
     s.layers[i] = {
@@ -383,6 +392,7 @@ function legacyToKeys(set, D, loop) {
 
 /* ---------- deshacer / rehacer ---------- */
 const hist = [];
+const histLayers = []; // qué capas había (cambia con Duplicar / Borrar copia)
 let histAt = -1;
 let histTimer = 0;
 function snapshot() {
@@ -393,17 +403,23 @@ function recordNow() {
   if (!S.settings || S._restoring) return;
   clearTimeout(histTimer);
   const snap = snapshot();
-  if (hist[histAt] === snap) return;
+  if (hist[histAt] === snap && histLayers[histAt] === S.scene.layers) return;
   hist.length = histAt + 1;
+  histLayers.length = histAt + 1;
   hist.push(snap);
-  if (hist.length > 120) hist.shift();
+  histLayers.push(S.scene.layers);
+  if (hist.length > 120) { hist.shift(); histLayers.shift(); }
   histAt = hist.length - 1;
   updateUndo();
 }
 function recordSoon() { clearTimeout(histTimer); histTimer = setTimeout(recordNow, 450); }
-function restore(snap) {
-  const j = JSON.parse(snap);
+function restore(at) {
+  const j = JSON.parse(hist[at]);
   S._restoring = true;
+  const layersRef = histLayers[at];
+  if (layersRef && layersRef.length === j.layers.length) S.scene.layers = layersRef;
+  if (S.sel >= S.scene.layers.length) S.sel = -1;
+  recountStatus();
   S.settings.layers = j.layers;
   Object.assign(S.settings.effects, j.effects);
   S.settings.duration = j.duration;
@@ -422,14 +438,14 @@ function undo() {
   recordNow();
   if (histAt <= 0) { flash('No hay nada para deshacer'); return; }
   histAt -= 1;
-  restore(hist[histAt]);
+  restore(histAt);
   flash('Deshecho');
 }
 function redo() {
   if (S.rec) return;
   if (histAt >= hist.length - 1) { flash('No hay nada para rehacer'); return; }
   histAt += 1;
-  restore(hist[histAt]);
+  restore(histAt);
   flash('Rehecho');
 }
 function updateUndo() {
@@ -515,6 +531,7 @@ function renderList() {
     s.poco ? el('span', { class: 'sc-badge', title: 'Mover poco: limitado para que no se vea el hueco detrás' }, '🔒')
       : isFragile(l) ? el('span', { class: 'sc-badge warn', title: 'Puede que no tenga relleno detrás: si la movés mucho se puede ver el hueco. Si pasa, prendé “Mover poco” en la capa.' }, '⚠') : null,
     s.keys?.length ? el('span', { class: 'sc-badge', title: `${s.keys.length} claves de animación` }, '◆') : null,
+    s.flipX || s.flipY ? el('span', { class: 'sc-badge', title: `Reflejada${s.flipX ? ' horizontal' : ''}${s.flipX && s.flipY ? ' y' : ''}${s.flipY ? ' vertical' : ''}` }, s.flipX && s.flipY ? '⇋⇵' : s.flipX ? '⇋' : '⇵') : null,
     el('span', { class: `sc-chip b-${s.beh.type}`, title: beh?.[2] }, ICON[s.beh.type] || '·'),
     el('button', {
       type: 'button', class: 'sc-eye', title: s.visible ? 'Ocultar capa' : 'Mostrar capa',
@@ -620,6 +637,12 @@ function renderLayerProps() {
     slider('Y', 'Subir o bajar', round(B.dy), -H, H, 1, (v) => setB('dy', v), (v) => `${Math.round(v)} px`),
     slider('Giro', 'Rotar desde el pivote', round(B.rot, 1), -180, 180, 0.5, (v) => setB('rot', v), (v) => `${v}°`),
     slider('Tamaño', 'Agrandar o achicar', B.sc ?? 1, 0.1, 4, 0.01, (v) => setB('sc', Math.max(0.02, v)), (v) => `${Math.round(v * 100)}%`),
+    el('div', { class: 'sc-row sc-flip' },
+      btn('⇋ Reflejar horizontal', 'Espejo de izquierda a derecha, en su mismo lugar (tecla H)', () => toggleFlip('x'), s.flipX ? 'on' : ''),
+      btn('⇵ Reflejar vertical', 'Espejo de arriba a abajo, en su mismo lugar (tecla V)', () => toggleFlip('y'), s.flipY ? 'on' : '')),
+    el('div', { class: 'sc-row' },
+      btn('⧉ Duplicar capa', 'Hace una copia encima, con sus mismos ajustes (para un reflejo, duplicá y reflejá la copia)', () => duplicateLayer(i)),
+      l.copyOf ? btn('🗑 Borrar copia', 'Borra esta copia (tu dibujo original no se toca)', () => deleteCopy(i)) : null),
     btn('↺ A su lugar original', 'Vuelve la capa a donde estaba en tu archivo', () => { s.base = defaultBase(); changed(true); })));
 
   const segs = el('div', { class: 'sc-behs' }, ...BEHAVIORS.map(([id, label, tip]) => btn(`${ICON[id]} ${label}`, tip, () => {
@@ -1316,6 +1339,104 @@ function drawOverlay() {
 }
 
 
+/* ---------- reflejar y duplicar ---------- */
+function toggleFlip(axis) {
+  const i = S.sel;
+  if (!S.scene || i < 0 || S.rec) return;
+  const s = S.settings.layers[i];
+  const k = axis === 'x' ? 'flipX' : 'flipY';
+  recordNow();
+  s[k] = !s[k];
+  rebake();
+  changed(true);
+  recordNow();
+  flash(s[k] ? (axis === 'x' ? '⇋ Reflejada horizontal' : '⇵ Reflejada vertical') : 'Sin reflejo ' + (axis === 'x' ? 'horizontal' : 'vertical'));
+}
+
+/** Copia de una capa: comparte el dibujo con su original (por herencia), con nombre propio. */
+function cloneLayer(src, name) {
+  const root = src.copyOf ? Object.getPrototypeOf(src) : src;
+  const c = Object.create(root);
+  c.name = name;
+  c.copyOf = root.name;
+  return c;
+}
+function copyName(base) {
+  const names = new Set(S.scene.layers.map((l) => l.name));
+  let n = 1, name = `${base} copia`;
+  while (names.has(name)) { n += 1; name = `${base} copia ${n}`; }
+  return name;
+}
+/* Corre las referencias por número de capa (Sigue a, centro de órbita, halo). */
+function shiftRefs(fn) {
+  for (const s of S.settings.layers) {
+    if (s.parent != null) s.parent = fn(s.parent);
+    if (s.beh?.centerLayer != null) s.beh.centerLayer = fn(s.beh.centerLayer);
+  }
+  const fx = S.settings.effects;
+  if (fx.haloLayer != null) fx.haloLayer = fn(fx.haloLayer) ?? 0;
+}
+function duplicateLayer(i) {
+  if (!S.scene || i < 0 || S.rec) return;
+  dropDraft();
+  recordNow();
+  const src = S.scene.layers[i];
+  const base = src.copyOf || src.name;
+  const copy = cloneLayer(src, copyName(base));
+  const j = i + 1;
+  shiftRefs((k) => (k >= j ? k + 1 : k));
+  const set = JSON.parse(JSON.stringify(S.settings.layers[i]));
+  set.phase = set.phase ?? 0;
+  const layers = S.scene.layers.slice();
+  layers.splice(j, 0, copy);
+  S.scene.layers = layers;
+  S.settings.layers.splice(j, 0, set);
+  S.sel = j;
+  rebake();
+  changed(true);
+  recordNow();
+  recountStatus();
+  flash(`⧉ “${copy.name}” encima de la original. Movela o reflejala`);
+}
+function deleteCopy(i) {
+  const l = S.scene?.layers[i];
+  if (!l?.copyOf || S.rec) return;
+  dropDraft();
+  recordNow();
+  shiftRefs((k) => (k === i ? null : k > i ? k - 1 : k));
+  for (const s of S.settings.layers) {
+    if (s.beh?.centerLayer === null && orbitsOther(s.beh) && s.beh.center === 'layer') { s.beh.center = 'self'; delete s.beh.centerLayer; }
+  }
+  S.scene.layers = S.scene.layers.filter((_, k) => k !== i);
+  S.settings.layers.splice(i, 1);
+  S.sel = -1;
+  rebake();
+  changed(true);
+  recordNow();
+  recountStatus();
+  flash(`Borré “${l.name}” (Ctrl+Z la recupera)`);
+}
+/** Al abrir: vuelve a armar las copias que hiciste (se guardan en tus ajustes como “copia de…”). */
+function restoreCopies(scene, saved) {
+  const list = saved?.layers;
+  if (!Array.isArray(list) || !list.some((x) => x.copyOf)) return;
+  const layers = scene.layers.filter((l) => !l.copyOf);
+  const same = (l, x) => l.name === x.name && (l.group ?? '') === (x.group ?? '');
+  list.forEach((x, k) => {
+    if (!x.copyOf || layers.some((l) => same(l, x))) return;
+    const src = layers.find((l) => !l.copyOf && l.name === x.copyOf && (l.group ?? '') === (x.group ?? ''))
+      || layers.find((l) => !l.copyOf && l.name === x.copyOf);
+    if (!src) return;
+    const c = Object.create(src);
+    c.name = x.name;
+    c.copyOf = src.name;
+    const prev = k > 0 ? layers.findIndex((l) => same(l, list[k - 1])) : -1;
+    const at = prev >= 0 ? prev + 1 : layers.indexOf(src) + 1;
+    layers.splice(at, 0, c);
+  });
+  scene.layers = layers;
+}
+
 /* ---------- ayuda rápida ---------- */
 function helpBox() {
   const how = (title, steps) => el('div', { class: 'sc-help-item' }, el('strong', {}, title), el('ol', {}, ...steps.map((t) => el('li', {}, t))));
@@ -1324,6 +1445,7 @@ function helpBox() {
     el('div', { class: 'sc-help-card' },
       how('Mover a otro lugar', ['Elegí ✥ Ubicar (abajo).', 'Arrastrá la capa. Esquinas = tamaño, bolita de arriba = girar.', 'Listo: queda guardada en ese lugar.']),
       how('Grabar un recorrido', ['Elegí la capa.', 'Tocá ● Grabar (o la tecla R) y esperá el 3-2-1.', 'Arrastrala por donde quieras hasta que termine la vuelta. Ctrl+Z deshace.']),
+      how('Reflejar (espejo)', ['Elegí la capa.', 'Tocá ⇋ Reflejar horizontal (tecla H) o ⇵ Reflejar vertical (tecla V). Otra vez = vuelve.', 'Para tener las dos: ⧉ Duplicar capa y reflejá la copia.']),
       how('Orbitar alrededor de otra capa', ['Elegí la capa que va a girar y tocá ◯ Orbitar.', 'En “Alrededor de” elegí Otra capa → por ejemplo, la espada.', 'Arrastrá la capa (o las bolitas rosas) para cambiar la distancia.'])));
 }
 
@@ -1620,7 +1742,7 @@ function hitTest(vx, vy) {
   for (let i = S.scene.layers.length - 1; i >= 0; i -= 1) {
     const l = S.scene.layers[i];
     if (!S.settings.layers[i].visible) continue;
-    const [x, y] = toLocal(worldOf(i), vx, vy);
+    const [x, y] = toLocal(withFlip(worldOf(i), l, S.settings.layers[i]), vx, vy);
     if (x < l.x || y < l.y || x >= l.x + l.w || y >= l.y + l.h) continue;
     const hm = hitMap(l);
     const a = hm.a[Math.floor(((y - l.y) / l.h) * hm.h) * hm.w + Math.floor(((x - l.x) / l.w) * hm.w)];
@@ -1824,6 +1946,8 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { if (S.editPose) dropDraft(true); else select(-1); }
   if ((e.key === 'Delete' || e.key === 'Backspace') && S.selKey && S.sel >= 0) { e.preventDefault(); deleteKey(S.settings.layers[S.sel], S.selKey); }
   if ((e.key === 'k' || e.key === 'K') && !mod && S.sel >= 0) { e.preventDefault(); addKeyNow(); }
+  if ((e.key === 'h' || e.key === 'H') && !mod && !e.altKey && S.sel >= 0) { e.preventDefault(); toggleFlip('x'); }
+  if ((e.key === 'v' || e.key === 'V') && !mod && !e.altKey && S.sel >= 0) { e.preventDefault(); toggleFlip('y'); }
   const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
   if (arrows[e.key] && S.sel >= 0 && S.tool !== 'encuadre') {
     e.preventDefault();
@@ -1858,4 +1982,4 @@ updateUndo();
   setStatus('Importá tu ilustración por capas');
 })();
 
-window.__escena = { S, handleFiles, startExport, setTab, select, applySettingsJson, settingsJson, openBuiltin, openLastImport, resetBuiltin, setTool, addKeyNow, undo, redo, handlesOf, renderProps, startRecording, finishRecording, cancelRecording, setOrbitCenter, pivotWorld, orbitCenterNow, V2W, W2V };
+window.__escena = { S, toggleFlip, duplicateLayer, deleteCopy, handleFiles, startExport, setTab, select, applySettingsJson, settingsJson, openBuiltin, openLastImport, resetBuiltin, setTool, addKeyNow, undo, redo, handlesOf, renderProps, startRecording, finishRecording, cancelRecording, setOrbitCenter, pivotWorld, orbitCenterNow, V2W, W2V };

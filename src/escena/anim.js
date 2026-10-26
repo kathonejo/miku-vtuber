@@ -351,6 +351,18 @@ export function bake(scene, settings, edit = null) {
   return { N, D, layers: out };
 }
 
+/**
+ * Espejo de la capa: se refleja en su propio lugar (alrededor del centro de su dibujo),
+ * antes de su ubicación y su animación. `m` = matriz de la capa sin espejo.
+ * Las capas que la siguen no se reflejan (siguen su movimiento, no el espejo).
+ */
+export function withFlip(m, layer, set) {
+  const fx = set?.flipX ? -1 : 1, fy = set?.flipY ? -1 : 1;
+  if (fx === 1 && fy === 1) return m;
+  const ex = (layer.x + layer.w / 2) * (1 - fx), ey = (layer.y + layer.h / 2) * (1 - fy);
+  return [m[0] * fx, m[1] * fx, m[2] * fy, m[3] * fy, m[0] * ex + m[2] * ey + m[4], m[1] * ex + m[3] * ey + m[5]];
+}
+
 /** Muestra el horneado en el tiempo t (interpola entre muestras). */
 export function sample(baked, i, t) {
   const L = baked.layers[i];

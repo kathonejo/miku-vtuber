@@ -1,5 +1,5 @@
 /* Dibuja un cuadro de la escena en cualquier tamaño de salida. */
-import { sample } from './anim.js';
+import { sample, withFlip } from './anim.js';
 import { hashSeed } from './model.js';
 
 const TAU = Math.PI * 2;
@@ -151,7 +151,8 @@ export function renderFrame(ctx, scene, settings, baked, t, W, H, opts = {}) {
   scene.layers.forEach((layer, i) => {
     const set = settings.layers[i];
     if (!set.visible || !baked.layers[i]) return;
-    const { m, op, glow, drift } = sample(baked, i, t);
+    const { m: m0, op, glow, drift } = sample(baked, i, t);
+    const m = withFlip(m0, layer, set);
     if (fx.halo && fx.haloLayer === i) drawHalo(ctx, scene, baked, fx, t, D, view);
     const a = op * (layer.opacity ?? 1);
     if (a <= 0.003) return;

@@ -112,7 +112,7 @@ body:not(.has-scene) .sc-view { visibility: hidden; }
 .sc-sec h3 { margin: 0 0 8px; font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .sc-behs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
 .sc-behs button { justify-content: flex-start; font-size: .85rem; }
-.sc-behs button.on, .sc-presets button:active { background: var(--accent-soft); border-color: var(--accent); }
+.sc-behs button.on, .sc-flip button.on, .sc-presets button:active { background: var(--accent-soft); border-color: var(--accent); }
 .sc-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .sc-presets button { white-space: normal; text-align: center; min-height: 44px; }
 .sc-field { display: block; margin: 8px 0; }

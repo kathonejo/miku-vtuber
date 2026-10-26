@@ -95,6 +95,8 @@ export function makeLayerSettings(layer, scene, index) {
     maxMove: Math.max(4, Math.round(Math.max(scene.width, scene.height) * 0.0025)),
     parent: null,
     follow: 0,
+    flipX: false,
+    flipY: false,
     kf: { on: false, a: defaultPose(), b: defaultPose(), ease: 'inout', period: 0, hold: true },
   };
 }
