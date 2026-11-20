@@ -42,6 +42,7 @@ const BUILTINS = [
   { id: BUNNY_ID, name: BUNNY_NAME, thumbnail: BUNNY_THUMB },
   { id: 'azul', name: 'Conejita azul', thumbnail: `${ASSET_BASE}azul/thumb.png` },
   { id: 'vaquita', name: 'Vaquita', thumbnail: `${ASSET_BASE}vaquita/thumb.png` },
+  { id: 'conejito', name: 'Conejito del Diario', thumbnail: `${ASSET_BASE}conejito/thumb.png` },
 ];
 const isBuiltin = (id) => BUILTINS.some((item) => item.id === id);
 function busy(doc, on, text) {
@@ -294,7 +295,9 @@ export function createCharPanel(doc, hooks) {
   bindDrop(root.querySelector('#char-drop'));
   bindDrop(hooks.stage);
   async function boot() {
-    const id = lastCharacterId();
+    // ?char=<id>: abre ese personaje incluido (enlace para revisar)
+    const want = new URLSearchParams(doc.defaultView?.location?.search || '').get('char');
+    const id = want && isBuiltin(want) ? want : lastCharacterId();
     if (!id || id === BUNNY_ID) {
       setRigCharacter(BUNNY_ID);
       return;

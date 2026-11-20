@@ -19,6 +19,7 @@ import {
   saveSettings,
 } from './settings.js';
 import { MSG, createTracker, decorativeTargets } from './tracking.js';
+import { simTargets } from './simtracking.js';
 
 const SLIDERS = [
   ['sens-mouth', (s) => s.sensitivity.mouth, (s, v) => { s.sensitivity.mouth = v; }],
@@ -46,6 +47,7 @@ function coerceDebug(obj) {
     funnel: n('funnel'),
     pucker: n('pucker'),
     smile: n('smile'),
+    browUp: n('browUp'),
     wristUp: n('wristUp'),
     heartRot: 0,
     shoulderTilt: 0,
@@ -99,6 +101,8 @@ export function mount(doc) {
     botonera.setActive(doc.body.classList.contains('stream') || settings.showcase === true);
   }
   let debugTargets = null;
+  // ?sim=1: seguimiento simulado, para ver un personaje sin cámara
+  const simOn = new URLSearchParams(doc.defaultView?.location?.search || '').get('sim') === '1';
   let toastTimer = 0;
   let wasCalibrating = false;
   const demo = { active: false, x: 0.5, y: 0.42, down: false };
@@ -435,6 +439,7 @@ export function mount(doc) {
     const sample = tracker.isRunning() ? tracker.consumeFrame(settings) : null;
     showcaseJump = 0;
     if (debugTargets) return coerceDebug(debugTargets);
+    if (simOn) return coerceDebug(simTargets(now / 1000));
     if (settings.showcase) {
       const shown = showcase.step(dt);
       showcaseJump = shown.jump || 0;
@@ -759,6 +764,7 @@ export function mount(doc) {
   });
   puppet.ready.then(() => chars.boot()).catch((err) => console.warn(err));
 
+  if (simOn) enterDemo();
   requestAnimationFrame(frame);
   return { settings, puppet, tracker };
 }

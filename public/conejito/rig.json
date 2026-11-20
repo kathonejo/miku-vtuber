@@ -1,0 +1,448 @@
+{
+ "name": "Conejito del Diario",
+ "rigSize": [
+  600,
+  600
+ ],
+ "pxPerUnit": 3.0,
+ "source": "conejito_capas.psd (12 capas)",
+ "id": "conejito",
+ "headMotion": 0.8,
+ "headRigid": true,
+ "headRoll": 0.6,
+ "paperEdge": false,
+ "squashBlink": false,
+ "accessories": [],
+ "swap": {
+  "mouth": {
+   "on": 0.07,
+   "off": 0.04,
+   "holdMs": 70,
+   "drop": 0.6,
+   "wideOn": 0.38,
+   "wideOff": 0.26,
+   "midId": "small",
+   "openId": "a",
+   "closedId": "neutral"
+  },
+  "eyes": {
+   "close": 0.55,
+   "open": 0.35
+  }
+ },
+ "parts": [
+  {
+   "file": "/conejito/body.png",
+   "x": 48.79,
+   "y": 192.43,
+   "w": 502.83,
+   "h": 322.27,
+   "px": [
+    1509,
+    967
+   ],
+   "id": "body",
+   "role": "static",
+   "parent": "body",
+   "pivot": [
+    300.2,
+    513.28
+   ],
+   "psdName": [
+    "cuerpo"
+   ]
+  },
+  {
+   "file": "/conejito/head.png",
+   "x": 48.79,
+   "y": 213.08,
+   "w": 220.04,
+   "h": 261.74,
+   "px": [
+    660,
+    785
+   ],
+   "id": "head",
+   "role": "static",
+   "parent": "head",
+   "pivot": [
+    168.62,
+    402.15
+   ],
+   "psdName": [
+    "cabeza"
+   ],
+   "parallax": [
+    0,
+    0
+   ]
+  },
+  {
+   "file": "/conejito/ear_l.png",
+   "x": 156.28,
+   "y": 188.58,
+   "w": 112.55,
+   "h": 85.22,
+   "px": [
+    338,
+    256
+   ],
+   "id": "ear_l",
+   "role": "ear",
+   "parent": "head",
+   "pivot": [
+    168.62,
+    254.37
+   ],
+   "psdName": [
+    "oreja_izq"
+   ],
+   "parallax": [
+    0,
+    0
+   ],
+   "motion": {
+    "sway": 3,
+    "speed": 0.4,
+    "stiffness": 110,
+    "damping": 8,
+    "gravity": 0,
+    "follow": 1.4,
+    "limit": 14,
+    "phase": 0
+   },
+   "earKick": 1
+  },
+  {
+   "file": "/conejito/ear_r.png",
+   "x": 189.07,
+   "y": 189.39,
+   "w": 183.0,
+   "h": 142.91,
+   "px": [
+    549,
+    429
+   ],
+   "id": "ear_r",
+   "role": "ear",
+   "parent": "head",
+   "pivot": [
+    253.64,
+    298.91
+   ],
+   "psdName": [
+    "oreja_der"
+   ],
+   "parallax": [
+    0,
+    0
+   ],
+   "motion": {
+    "sway": 3,
+    "speed": 0.36,
+    "stiffness": 110,
+    "damping": 8,
+    "gravity": 0,
+    "follow": 1.4,
+    "limit": 14,
+    "phase": 0.25
+   },
+   "earKick": 1
+  },
+  {
+   "file": "/conejito/brows.png",
+   "x": 91.5,
+   "y": 300.12,
+   "w": 83.6,
+   "h": 19.03,
+   "px": [
+    251,
+    57
+   ],
+   "id": "brows",
+   "role": "brow",
+   "parent": "head",
+   "pivot": [
+    133.84,
+    309.21
+   ],
+   "psdName": [
+    "cejas"
+   ],
+   "parallax": [
+    0,
+    0
+   ],
+   "browLift": 14
+  },
+  {
+   "id": "eye_l",
+   "role": "eye",
+   "parent": "head",
+   "side": "l",
+   "pivot": [
+    110.03,
+    346.15
+   ],
+   "parallax": [
+    0,
+    0
+   ],
+   "psdName": [
+    "ojo_der_abierto",
+    "ojo_der_cerrado"
+   ]
+  },
+  {
+   "id": "eye_r",
+   "role": "eye",
+   "parent": "head",
+   "side": "r",
+   "pivot": [
+    153.54,
+    353.23
+   ],
+   "parallax": [
+    0,
+    0
+   ],
+   "psdName": [
+    "ojo_izq_abierto",
+    "ojo_izq_cerrado"
+   ]
+  },
+  {
+   "id": "mouth",
+   "role": "mouth",
+   "parent": "head",
+   "parallax": [
+    0,
+    0
+   ],
+   "psdName": [
+    "boca_cerrada",
+    "boca_media",
+    "boca_abierta"
+   ]
+  }
+ ],
+ "mouths": {
+  "neutral": {
+   "file": "/conejito/mouth_closed.png",
+   "x": 104.66,
+   "y": 390.2,
+   "w": 43.93,
+   "h": 16.19,
+   "px": [
+    132,
+    49
+   ],
+   "patch": true
+  },
+  "smile": {
+   "file": "/conejito/mouth_closed.png",
+   "x": 104.66,
+   "y": 390.2,
+   "w": 43.93,
+   "h": 16.19,
+   "px": [
+    132,
+    49
+   ],
+   "patch": true
+  },
+  "small": {
+   "file": "/conejito/mouth_mid.png",
+   "x": 108.91,
+   "y": 382.71,
+   "w": 34.82,
+   "h": 27.33,
+   "px": [
+    104,
+    82
+   ],
+   "patch": true
+  },
+  "o": {
+   "file": "/conejito/mouth_mid.png",
+   "x": 108.91,
+   "y": 382.71,
+   "w": 34.82,
+   "h": 27.33,
+   "px": [
+    104,
+    82
+   ],
+   "patch": true
+  },
+  "a": {
+   "file": "/conejito/mouth_open.png",
+   "x": 104.66,
+   "y": 379.68,
+   "w": 43.52,
+   "h": 36.84,
+   "px": [
+    131,
+    111
+   ],
+   "patch": true
+  }
+ },
+ "mouthCenter": [
+  126.27,
+  398.05
+ ],
+ "extras": {},
+ "arms": {
+  "parts": {},
+  "shoulders": {
+   "l": [
+    188.87,
+    462.87
+   ],
+   "r": [
+    269.84,
+    462.87
+   ]
+  },
+  "hasCustom": false
+ },
+ "eyes": {
+  "l": {
+   "center": [
+    110.03,
+    346.15
+   ],
+   "styles": {
+    "A": {
+     "full": {
+      "file": "/conejito/eye_l_open.png",
+      "x": 91.9,
+      "y": 327.65,
+      "w": 36.84,
+      "h": 37.25,
+      "px": [
+       111,
+       112
+      ]
+     }
+    },
+    "B": {
+     "full": {
+      "file": "/conejito/eye_l_open.png",
+      "x": 91.9,
+      "y": 327.65,
+      "w": 36.84,
+      "h": 37.25,
+      "px": [
+       111,
+       112
+      ]
+     }
+    }
+   },
+   "closed": {
+    "file": "/conejito/eye_l_closed.png",
+    "x": 86.84,
+    "y": 339.19,
+    "w": 46.15,
+    "h": 18.02,
+    "px": [
+     138,
+     54
+    ],
+    "patch": true
+   }
+  },
+  "r": {
+   "center": [
+    153.54,
+    353.23
+   ],
+   "styles": {
+    "A": {
+     "full": {
+      "file": "/conejito/eye_r_open.png",
+      "x": 134.21,
+      "y": 333.52,
+      "w": 39.27,
+      "h": 39.88,
+      "px": [
+       118,
+       120
+      ]
+     }
+    },
+    "B": {
+     "full": {
+      "file": "/conejito/eye_r_open.png",
+      "x": 134.21,
+      "y": 333.52,
+      "w": 39.27,
+      "h": 39.88,
+      "px": [
+       118,
+       120
+      ]
+     }
+    }
+   },
+   "closed": {
+    "file": "/conejito/eye_r_closed.png",
+    "x": 129.35,
+    "y": 345.47,
+    "w": 48.58,
+    "h": 19.64,
+    "px": [
+     146,
+     59
+    ],
+    "patch": true
+   }
+  }
+ },
+ "eyeStyles": [
+  "A",
+  "B"
+ ],
+ "pivots": {
+  "neck": [
+   168.62,
+   402.15
+  ],
+  "feet": [
+   300.2,
+   513.28
+  ],
+  "eye_l": [
+   110.03,
+   346.15
+  ],
+  "eye_r": [
+   153.54,
+   353.23
+  ],
+  "headTop": [
+   209.11,
+   205.79
+  ]
+ },
+ "bounds": {
+  "x0": 9.51,
+  "y0": 159.64,
+  "x1": 590.49,
+  "y1": 533.52
+ },
+ "drawOrder": [
+  "body",
+  "head",
+  "ear_l",
+  "ear_r",
+  "brows",
+  "eye_l",
+  "eye_r",
+  "mouth"
+ ],
+ "build": "1956cde116eb",
+ "art": "6b573674b519"
+}

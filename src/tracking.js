@@ -46,10 +46,10 @@ const POSE_L_WRIST = 15;
 const POSE_R_WRIST = 16;
 const SHOULDER_LIMIT = (5 * Math.PI) / 180;
 
-const CALIB_KEYS = ['yaw', 'pitch', 'roll', 'jaw', 'blinkL', 'blinkR', 'smile'];
+const CALIB_KEYS = ['yaw', 'pitch', 'roll', 'jaw', 'blinkL', 'blinkR', 'smile', 'brow'];
 
 function zeroBaseline() {
-  return { yaw: 0, pitch: 0, roll: 0, jaw: 0, blinkL: 0, blinkR: 0, smile: 0 };
+  return { yaw: 0, pitch: 0, roll: 0, jaw: 0, blinkL: 0, blinkR: 0, smile: 0, brow: 0 };
 }
 
 /**
@@ -269,6 +269,7 @@ export function decorativeTargets(time, demo, settings) {
       funnel: 0,
       pucker: 0,
       smile: demo.down ? 0.22 : 0.18,
+      browUp: demo.down ? 0.35 : 0,
       wristUp: 0,
       heartRot: 0,
       shoulderTilt: 0,
@@ -377,6 +378,7 @@ export function createTracker(video, onStatus) {
   const funnelF = new AttackRelease(48, 14);
   const puckerF = new AttackRelease(48, 14);
   const smileF = new AttackRelease(36, 12);
+  const browF = new AttackRelease(28, 10);
 
   const shoulderL = makePointFilter();
   const shoulderR = makePointFilter();
@@ -425,6 +427,7 @@ export function createTracker(video, onStatus) {
     funnelF.reset(0);
     puckerF.reset(0);
     smileF.reset(0);
+    browF.reset(0);
     for (const p of [shoulderL, shoulderR, wristL, wristR]) {
       p.jump.reset();
       p.fx.reset();
@@ -709,6 +712,7 @@ export function createTracker(video, onStatus) {
     let funnelRaw = 0;
     let puckerRaw = 0;
     let smileRaw = 0;
+    let browRaw = 0;
     let blinkRawL = 0;
     let blinkRawR = 0;
     let gazeRaw = { gazeX: 0, gazeY: 0 };
@@ -723,6 +727,8 @@ export function createTracker(video, onStatus) {
       funnelRaw = score(blends, 'mouthFunnel');
       puckerRaw = score(blends, 'mouthPucker');
       smileRaw = (score(blends, 'mouthSmileLeft') + score(blends, 'mouthSmileRight')) / 2;
+      // cejas arriba (sorpresa): el centro pesa más que los extremos
+      browRaw = Math.max(score(blends, 'browInnerUp'), (score(blends, 'browOuterUpLeft') + score(blends, 'browOuterUpRight')) / 2);
       const blinks = screenBlinks(blends, mirror);
       blinkRawL = blinks.blinkL;
       blinkRawR = blinks.blinkR;
@@ -738,6 +744,7 @@ export function createTracker(video, onStatus) {
         blinkL: blinkRawL,
         blinkR: blinkRawR,
         smile: smileRaw,
+        brow: browRaw,
       });
     }
 
@@ -775,6 +782,7 @@ export function createTracker(video, onStatus) {
     const funnelTarget = clamp(funnelRaw * 1.4 * mouthAmt, 0, 1.5);
     const puckerTarget = clamp(puckerRaw * 1.2 * mouthAmt, 0, 1.5);
     const smileTarget = clamp(Math.max(0, smileRaw - base.smile) * 1.3 * mouthAmt, 0, 1.5);
+    const browTarget = clamp((Math.max(0, browRaw - base.brow) - 0.04) * 1.8, 0, 1);
     if (faceTracked) {
       openL = followOpen(openL, blinkRawL, dt);
       openR = followOpen(openR, blinkRawR, dt);
@@ -813,6 +821,7 @@ export function createTracker(video, onStatus) {
     const funnel = funnelF.update(faceTracked ? funnelTarget : 0, dt);
     const pucker = puckerF.update(faceTracked ? puckerTarget : 0, dt);
     const smile = smileF.update(faceTracked ? smileTarget : 0, dt);
+    const browUp = browF.update(faceTracked ? browTarget : 0, dt);
     const blinkL = blinkLF.update(faceTracked ? shapedL.out : 0, dt);
     const blinkR = blinkRF.update(faceTracked ? shapedR.out : 0, dt);
 
@@ -876,6 +885,7 @@ export function createTracker(video, onStatus) {
       funnel: clamp(funnel, 0, 1.5),
       pucker: clamp(pucker, 0, 1.5),
       smile: clamp(smile, 0, 1.5),
+      browUp: clamp(browUp, 0, 1),
       wristUp: clamp(wristUpSm, 0, 1),
       heartRot: clamp(heartRotSm, -0.4, 0.4),
       shoulderTilt: clamp(shoulderSm, -SHOULDER_LIMIT, SHOULDER_LIMIT),

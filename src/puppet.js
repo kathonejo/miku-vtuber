@@ -1,6 +1,6 @@
 import { createSleeves } from './arms.js';
 import { createEyePainter, resolveStyle, stepEyeOpen, collectEyeFiles } from './eyes.js';
-import { clamp, finite, hash01, Spring1D } from './filters.js';
+import { clamp, expApproach, finite, hash01, Spring1D } from './filters.js';
 import { paintCastShadow, paintGroundShadow, relativeLuminance, sampleAverage, shadowLook } from './castshadow.js';
 import { neckAnchorId, neckLiftAmount, paintNeck } from './neckdraw.js';
 import { resolveChain } from './rigchain.js';
@@ -244,6 +244,12 @@ function parallaxOf(part) {
   if (part.role === 'ear') return [-3, -2];
   if (part.role === 'mouth') return [3, 2];
   return [0, 0];
+}
+
+/** Cejas (rol 'brow'): suben con la señal de cejas/sorpresa, `browLift` unidades del rig como máximo. */
+function browLift(part, view) {
+  if (part?.role !== 'brow') return 0;
+  return clamp(finite(view?.brow, 0), 0, 1) * finite(part.browLift, 8);
 }
 
 function pivotOf(part) {
@@ -1004,6 +1010,9 @@ export function createPuppet(canvas) {
     mouthId: 'neutral',
     mouthPrev: 'neutral',
     mouthFade: 1,
+    mouthWide: false,
+    prevRollRad: 0,
+    prevYaw: 0,
     pending: null,
     pendingN: 0,
     nextBlink: 1.7,
@@ -1028,6 +1037,7 @@ export function createPuppet(canvas) {
       gazeY: 0,
       jaw: 0,
       smile: 0,
+      brow: 0,
       wristUp: 0,
       bounce: 0,
       mouthId: 'neutral',
@@ -1171,7 +1181,12 @@ export function createPuppet(canvas) {
     const live = Number(targets?.jawLive);
     const signal = face && Number.isFinite(live) ? live : num(targets, 'jaw');
     const open = swapMouth.step(signal, dt);
-    const want = open ? cfg.mouth.openId : cfg.mouth.closedId;
+    // boca de tres estados: cerrada / media / abierta del todo (histéresis entre media y abierta)
+    const midId = cfg.mouth.midId && state.manifest.mouths?.[cfg.mouth.midId] ? cfg.mouth.midId : null;
+    if (!open) state.mouthWide = false;
+    else if (state.mouthWide) state.mouthWide = signal >= cfg.mouth.wideOff;
+    else state.mouthWide = signal >= cfg.mouth.wideOn;
+    const want = !open ? cfg.mouth.closedId : midId && !state.mouthWide ? midId : cfg.mouth.openId;
     const id = state.manifest.mouths?.[want] ? want : state.mouthId;
     state.mouthId = id;
     state.mouthPrev = id;
@@ -1310,6 +1325,12 @@ export function createPuppet(canvas) {
       }
       // cola: el rebote del cuerpo y el salto la empujan (resorte con inercia)
       if (part.role === 'tail' && dt > 0) spr.v += clamp(kick, -3, 3) * (rig.follow ?? 1);
+      // orejas con `earKick` (opt-in por personaje): el giro de la cabeza las empuja y rebotan (resorte con retraso)
+      if (part.role === 'ear' && part.earKick > 0 && dt > 0) {
+        const left = String(part.id).endsWith('_l');
+        const headVel = ((rollRad - state.prevRollRad) / dt) + (yaw - state.prevYaw) / dt * 0.35 * (left ? -1 : 1);
+        spr.v += clamp(-headVel, -6, 6) * dt * 7 * part.earKick + clamp(kick, -3, 3) * 0.5 * part.earKick;
+      }
       partRot[part.id] = spr.update(target, dt);
     }
 
@@ -1413,6 +1434,8 @@ export function createPuppet(canvas) {
     view.gazeY = clamp(num(targets, 'gazeY'), -1.5, 1.5);
     view.jaw = jaw;
     view.smile = smile;
+    state.browS = expApproach(state.browS || 0, clamp(num(targets, 'browUp'), 0, 1), 18, dt);
+    view.brow = state.browS;
     view.wristUp = wristUp;
     view.bounce = bounce;
     view.mouthId = state.mouthId;
@@ -1428,6 +1451,8 @@ export function createPuppet(canvas) {
     view.jumpSy = clamp(finite(jumpSy, 1), 0.75, 1.25);
     view.face = face;
     state.prevJaw = jaw;
+    state.prevRollRad = rollRad;
+    state.prevYaw = yaw;
     state.prevPitch = pitch;
     state.prevWrist = wristUp;
   }
@@ -1471,7 +1496,7 @@ export function createPuppet(canvas) {
     const rig = part?.rig || {};
     const [px, py] = parallaxOf(part);
     const tx = px * view.yaw + extraX + (rig.dx || 0);
-    const ty = py * view.pitch + extraY + (rig.dy || 0);
+    const ty = py * view.pitch + extraY + (rig.dy || 0) - browLift(part, view);
     const rot = (view.partRot[part?.id] || 0) + (rig.rot || 0) * (Math.PI / 180);
     const sc = rig.scale > 0 ? rig.scale : 1;
     const pivot = pivotOf(part);
@@ -1783,7 +1808,7 @@ export function createPuppet(canvas) {
     const piv = pivotOf(part);
     const [px, py] = parallaxOf(part);
     const tx = px * state.view.yaw + (rig.dx || 0);
-    const ty = py * state.view.pitch + (rig.dy || 0);
+    const ty = py * state.view.pitch + (rig.dy || 0) - browLift(part, state.view);
     const rot = (state.view.partRot[part?.id] || 0) + (rig.rot || 0) * (Math.PI / 180);
     const sc = rig.scale > 0 ? rig.scale : 1;
     const co = Math.cos(rot);
