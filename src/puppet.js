@@ -2286,6 +2286,9 @@ export function createPuppet(canvas) {
         squashBlink: state.manifest?.squashBlink === true,
         squashL: squashOf('eye_l'),
         squashR: squashOf('eye_r'),
+        headRollRad: state.view.rollRad,
+        partRot: { ...state.view.partRot },
+        brow: state.view.brow,
       };
     },
     /** Pruebas: fija el aplastado de los ojos (0..1) o null para volver al parpadeo real. */
