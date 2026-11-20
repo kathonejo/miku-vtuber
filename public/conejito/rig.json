@@ -23,12 +23,12 @@
   {
    "file": "/conejito/body.png",
    "x": 55.06,
-   "y": 209.03,
+   "y": 243.44,
    "w": 496.56,
-   "h": 305.67,
+   "h": 271.26,
    "px": [
     1490,
-    917
+    814
    ],
    "id": "body",
    "role": "static",
@@ -68,12 +68,12 @@
   },
   {
    "file": "/conejito/ear_l.png",
-   "x": 123.89,
+   "x": 128.14,
    "y": 188.58,
-   "w": 144.94,
+   "w": 140.69,
    "h": 108.1,
    "px": [
-    435,
+    422,
     324
    ],
    "id": "ear_l",
@@ -91,26 +91,26 @@
     0
    ],
    "motion": {
-    "sway": 3,
+    "sway": 1.5,
     "speed": 0.4,
     "stiffness": 110,
     "damping": 8,
     "gravity": 0,
     "follow": 1.4,
-    "limit": 14,
+    "limit": 9,
     "phase": 0
    },
    "earKick": 1
   },
   {
    "file": "/conejito/ear_r.png",
-   "x": 166.6,
+   "x": 178.95,
    "y": 189.39,
-   "w": 218.62,
-   "h": 179.15,
+   "w": 187.45,
+   "h": 153.04,
    "px": [
-    656,
-    537
+    562,
+    459
    ],
    "id": "ear_r",
    "role": "ear",
@@ -127,13 +127,13 @@
     0
    ],
    "motion": {
-    "sway": 3,
+    "sway": 1.5,
     "speed": 0.36,
     "stiffness": 110,
     "damping": 8,
     "gravity": 0,
     "follow": 1.4,
-    "limit": 14,
+    "limit": 9,
     "phase": 0.25
    },
    "earKick": 1
@@ -260,6 +260,6 @@
   "ear_r",
   "eye_r"
  ],
- "build": "b91f359b416f",
- "art": "ec44d2a08d25"
+ "build": "9c0ebc3b7a50",
+ "art": "d36d978f7ba1"
 }

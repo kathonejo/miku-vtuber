@@ -98,7 +98,7 @@ NECK = rig(800, 1450)        # eje de giro de la cabeza (bajo la mejilla): así 
 FEET = rig(1450, 1999)       # base del cuerpo: respira y se inclina desde aquí
 EAR_L_BASE = rig(790, 700)   # oreja chica (izquierda de la pantalla): pivote que diseñó Teatro
 EAR_R_BASE = rig(1215, 925)  # oreja grande: pivote que diseñó Teatro
-EAR_MOTION = {'sway': 3, 'speed': 0.4, 'stiffness': 110, 'damping': 8, 'gravity': 0, 'follow': 1.4, 'limit': 14}
+EAR_MOTION = {'sway': 1.5, 'speed': 0.4, 'stiffness': 110, 'damping': 8, 'gravity': 0, 'follow': 1.4, 'limit': 9}   # las orejas se mueven en sentido contrario al girar: límite bajo para que no se abra la unión entre ellas
 
 parts = []
 
