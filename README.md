@@ -140,7 +140,7 @@ El conejito verde del Diario de dibujo (capas de Katherine). Tiene **un solo ojo
 - **Cabeza** gira e inclina con la cámara (eje bajo la mejilla). **Orejas** van con la cabeza y rebotan con resorte cuando la cabeza se mueve rápido (`earKick` en el `rig.json`).
 - **Parpadeo**: el único ojo (`ojo_izq`, el del dibujo original) cambia de golpe entre `ojo_izq_abierto` y `ojo_izq_cerrado`.
 - Sin boca ni cejas: solo parpadea, mueve las orejas y sigue la cabeza. El cuerpo respira solo. La cola es parte de `cuerpo`, así que no se mueve aparte.
-- Armado con `python3 tools/conejito/build_conejito.py [carpeta/capas]` (lee los PNG de capas con la máscara ya aplicada). Tapa con el mismo blanco las rendijas del relleno que se abrían al inclinar la cabeza; es lo único que se agrega al dibujo.
+- Versión v3 del dibujo: 6 capas (`cuerpo`, `cabeza`, `oreja_izq`, `oreja_der`, `ojo_abierto`, `ojo_cerrado`) sin máscaras; el importador de PSD de la app lo lee directo. Armado con `python3 tools/conejito/build_conejito.py [carpeta/capas]` (lee los PNG de capas; no se agrega ni se retoca nada). La cabeza se inclina hasta ~18° (`headRoll` 1.8).
 
 **Probar sin cámara:** `/?char=conejito&sim=1` entra en modo demo y reproduce un guion de 20 s con parpadeos, inclinación a los dos lados, giro y movimiento combinado (`src/simtracking.js`). También se puede forzar cualquier valor desde la consola con `__bunny.setDebugTargets({ roll: 0.8 })`.
 

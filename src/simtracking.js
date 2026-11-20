@@ -24,11 +24,11 @@ export function simTargets(timeSec) {
   let roll = 0;
   let yaw = 0;
   // 4–10 s: inclinación a izquierda y derecha (rebote de orejas)
-  if (t > 4 && t < 10) roll = 0.95 * Math.sin((t - 4) * 1.6) * Math.min(1, (t - 4) / 0.6, (10 - t) / 0.6);
+  if (t > 4 && t < 10) roll = 1.0 * Math.sin((t - 4) * 1.6) * Math.min(1, (t - 4) / 0.6, (10 - t) / 0.6);
   if (t > 4 && t < 10) yaw = 0.3 * Math.sin((t - 4) * 1.6 + 0.8);
   // 10–16 s: giro a izquierda y derecha
   if (t > 10 && t < 16) yaw = 0.8 * Math.sin((t - 10) * 1.5) * Math.min(1, (t - 10) / 0.6, (16 - t) / 0.6);
-  if (t > 10 && t < 16) roll = 0.45 * Math.sin((t - 10) * 1.5 + 1) * Math.min(1, (t - 10) / 0.6, (16 - t) / 0.6);
+  if (t > 10 && t < 16) roll = 0.6 * Math.sin((t - 10) * 1.5 + 1) * Math.min(1, (t - 10) / 0.6, (16 - t) / 0.6);
   const pitch = 0.2 * Math.sin(t * 0.9);
   const raw = OPEN + (CLOSED - OPEN) * blink;
   return {

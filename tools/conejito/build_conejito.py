@@ -1,4 +1,4 @@
-"""Arma el Conejito del Diario de dibujo a partir del PSD por capas (12 capas, 2900x2400).
+"""Arma el Conejito del Diario de dibujo a partir del PSD por capas (v3: 6 capas, 2900x2400, sin máscaras).
 
 Solo se usan los píxeles de sus capas: se recortan y se reducen de tamaño; nada se
 dibuja ni se deforma. Escribe public/conejito/*.png y public/conejito/rig.json.
@@ -6,21 +6,18 @@ dibuja ni se deforma. Escribe public/conejito/*.png y public/conejito/rig.json.
     python3 tools/conejito/build_conejito.py [carpeta/capas]
 
 Lee los PNG de capas (mismo lienzo de 2900x2400, alineados) que salen de conejito_capas.psd; ni el PSD
-(40 MB) ni los PNG grandes se guardan en el repositorio. Por defecto: /workspace/diario-redes/video/conejito/capas
+(30 MB) ni los PNG grandes se guardan en el repositorio. Por defecto: /workspace/diario-redes/video/conejito/capas
 (o CONEJITO_CAPAS).
 
 Capas del PSD (de abajo hacia arriba) -> piezas del rig:
   cuerpo (con la cola)       -> body       quieto (respira con el cuerpo)
   cabeza                     -> head       gira / se inclina con la cabeza
   oreja_izq, oreja_der       -> ear_l/_r   con la cabeza + resorte con rebote
-  ojo_izq_abierto|cerrado    -> eye_r      parpadeo: cambio de golpe abierto/cerrado (único ojo)
+  ojo_abierto|cerrado    -> eye_r      parpadeo: cambio de golpe abierto/cerrado (único ojo)
 
-Sin boca, sin cejas y con UN solo ojo (a pedido de Katherine): no se usan las capas cejas, boca_* ni ojo_der_*.
-El ojo que queda es 'ojo_izq': coincide con el único ojo del dibujo original (ref_conejo.png), que es el
-punto de la cara; el otro ojo lo agregó el diseño de capas.
+Sin boca, sin cejas y con UN solo ojo (a pedido de Katherine): es el ojo del dibujo original (ref_conejo.png).
 
-Los lados siguen la posición en pantalla (l = izquierda de la pantalla). En el PSD los
-ojos se llaman al revés que las orejas ('ojo_izq' está a la derecha del par de ojos); el ojo único va como eye_r.
+Los lados siguen la posición en pantalla (l = izquierda de la pantalla); el ojo único va como eye_r.
 """
 import hashlib
 import json
@@ -39,8 +36,7 @@ os.makedirs(OUT, exist_ok=True)
 CAPAS = (sys.argv[1] if len(sys.argv) > 1 else
          os.environ.get('CONEJITO_CAPAS', '/workspace/diario-redes/video/conejito/capas'))
 
-# Las capas del PSD llevan la transparencia en una máscara de capa; el importador de PSD de la app
-# (ag-psd) no la aplica. Por eso se leen los PNG de capas/ (mismo lienzo, máscara ya aplicada).
+# Se leen los PNG de capas/ (mismo lienzo, alineados), iguales a las capas del PSD.
 W, H = 2900, 2400
 
 
@@ -54,30 +50,11 @@ def full(path):
     return a
 
 
-NAMES = ['cuerpo', 'cabeza', 'oreja_izq', 'oreja_der', 'ojo_izq_abierto', 'ojo_izq_cerrado']
+NAMES = ['cuerpo', 'cabeza', 'oreja_izq', 'oreja_der', 'ojo_abierto', 'ojo_cerrado']
 IMG = {n: full(os.path.join(CAPAS, n + '.png')) for n in NAMES}
 
-# Huecos del relleno blanco. El dibujo trae el blanco de cada pieza como un polígono: en reposo encajan, pero
-# al inclinar la cabeza o mover las orejas se abren rendijas y se ve el fondo. Se tapan con el mismo blanco,
-# siempre por debajo del dibujo y sin tocar sus contornos:
-#   1. cuña de fondo entre la cabeza y la oreja chica (ya hay un hueco de ~100 px en reposo): va en la
-#      capa de la cabeza;
-#   2. 'base' blanca quieta bajo el cuerpo: la silueta de todas las capas, encogida 15 px hacia adentro
-#      (así queda toda tapada por el dibujo en reposo y no deja halos en los bordes).
-union = np.maximum.reduce([IMG[n][..., 3] for n in ('cuerpo', 'cabeza', 'oreja_izq', 'oreja_der')]) > 0.5
-closed = cv2.morphologyEx(union.astype(np.uint8), cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (151, 151))) > 0
-box = np.zeros_like(union)
-box[650:900, 700:1100] = True
-plug = closed & ~union & box
-plug = (cv2.dilate(plug.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))) > 0) & closed & box   # y su costura
-print('cuña tapada (px):', int(plug.sum()))
-plug_img = np.zeros((H, W, 4), np.float32)
-plug_img[plug] = 1.0
-IMG['cabeza'] = IMG['cabeza'] + plug_img * (1 - IMG['cabeza'][..., 3:])
-base = cv2.erode(union.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))) > 0
-base_img = np.zeros((H, W, 4), np.float32)
-base_img[base] = 1.0
-IMG['cuerpo'] = IMG['cuerpo'] + base_img * (1 - IMG['cuerpo'][..., 3:])
+# v3: el relleno blanco ya está extendido bajo la base de las orejas (sin muesca hasta ±30°) y sin halo a la
+# izquierda de la cabeza, así que no se agrega ningún relleno: solo se usan los píxeles de las capas.
 
 # ---- rig 600x600: el conejito es ancho, 500 unidades de ancho, centrado
 BX0, BY0, BX1, BY1 = 214, 402, 2684, 1999      # encuadre fijo (todas las capas visibles)
@@ -119,8 +96,8 @@ def center(img):
 # pivotes (en píxeles del PSD)
 NECK = rig(800, 1450)        # eje de giro de la cabeza (bajo la mejilla): así la cuña de arriba casi no se abre
 FEET = rig(1450, 1999)       # base del cuerpo: respira y se inclina desde aquí
-EAR_L_BASE = rig(800, 720)   # oreja chica (izquierda de la pantalla): pie de la media luna
-EAR_R_BASE = rig(1220, 940)  # oreja grande: entre sus dos pies
+EAR_L_BASE = rig(790, 700)   # oreja chica (izquierda de la pantalla): pivote que diseñó Teatro
+EAR_R_BASE = rig(1215, 925)  # oreja grande: pivote que diseñó Teatro
 EAR_MOTION = {'sway': 3, 'speed': 0.4, 'stiffness': 110, 'damping': 8, 'gravity': 0, 'follow': 1.4, 'limit': 14}
 
 parts = []
@@ -140,8 +117,8 @@ part('ear_l', 'oreja_izq', 'ear', 'head', EAR_L_BASE, parallax=[0, 0],
      motion=dict(EAR_MOTION, phase=0), earKick=1)
 part('ear_r', 'oreja_der', 'ear', 'head', EAR_R_BASE, parallax=[0, 0],
      motion=dict(EAR_MOTION, phase=0.25, speed=0.36), earKick=1)
-# un solo ojo: el del dibujo original ('ojo_izq')
-EYE = {'r': ('ojo_izq_abierto', 'ojo_izq_cerrado')}
+# un solo ojo: el del dibujo original
+EYE = {'r': ('ojo_abierto', 'ojo_cerrado')}
 eyes = {}
 for side, (op, cl) in EYE.items():
     eo = save(f'eye_{side}_open.png', IMG[op])
@@ -152,7 +129,7 @@ for side, (op, cl) in EYE.items():
     eyes[side] = {'center': c, 'styles': {'A': {'full': eo}, 'B': {'full': eo}}, 'closed': ec}
 
 comp = np.zeros((H, W, 4), np.float32)
-for n in ['cuerpo', 'cabeza', 'oreja_izq', 'oreja_der', 'ojo_izq_abierto']:
+for n in ['cuerpo', 'cabeza', 'oreja_izq', 'oreja_der', 'ojo_abierto']:
     comp = IMG[n] + comp * (1 - IMG[n][..., 3:])
 cx0, cy0, cx1, cy1 = 150, 330, 1350, 1530
 th = cv2.resize(comp[cy0:cy1, cx0:cx1], (64, 64), interpolation=cv2.INTER_AREA)
@@ -164,11 +141,11 @@ manifest = {
     'name': 'Conejito del Diario',
     'rigSize': [RIG, RIG],
     'pxPerUnit': PPU,
-    'source': 'conejito_capas.psd (12 capas)',
+    'source': 'conejito_capas.psd (v3, 6 capas)',
     'id': 'conejito',
     'headMotion': 0.8,
     'headRigid': True,
-    'headRoll': 0.6,
+    'headRoll': 1.8,   # inclinación máx. ~18° (10° de cámara × 1.8)
     'paperEdge': False,
     'squashBlink': False,
     'accessories': [],
