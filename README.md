@@ -135,16 +135,14 @@ Lo que el PSD no trae, y por eso no se inventa:
 
 ## Personajes incluidos: Conejito del Diario
 
-El conejito verde del Diario de dibujo (12 capas de Katherine, sin pupilas ni brazos). **Personajes → Conejito del Diario → Usar**, o abrir directo `/?char=conejito`.
+El conejito verde del Diario de dibujo (capas de Katherine). Tiene **un solo ojo**, sin boca, sin cejas, sin pupilas y sin brazos. **Personajes → Conejito del Diario → Usar**, o abrir directo `/?char=conejito`.
 
 - **Cabeza** gira e inclina con la cámara (eje bajo la mejilla). **Orejas** van con la cabeza y rebotan con resorte cuando la cabeza se mueve rápido (`earKick` en el `rig.json`).
-- **Parpadeo**: cambio de golpe entre `ojo_*_abierto` y `ojo_*_cerrado` (el ojo abierto sigue un poco la mirada).
-- **Boca de 3 estados** por cuánto abres la boca: `boca_cerrada` → `boca_media` → `boca_abierta` (`swap.mouth.midId`, con umbrales `on`, `wideOn` y `wideOff`).
-- **Cejas** (rol `brow`): suben un poco con las cejas o la sorpresa (`browInnerUp` / `browOuterUp` de MediaPipe, calibradas con «Calibrar»). En modo demo suben al mantener pulsado.
-- El cuerpo respira solo. La cola es parte de `cuerpo`, así que no se mueve aparte.
+- **Parpadeo**: el único ojo (`ojo_izq`, el del dibujo original) cambia de golpe entre `ojo_izq_abierto` y `ojo_izq_cerrado`.
+- Sin boca ni cejas: solo parpadea, mueve las orejas y sigue la cabeza. El cuerpo respira solo. La cola es parte de `cuerpo`, así que no se mueve aparte.
 - Armado con `python3 tools/conejito/build_conejito.py [carpeta/capas]` (lee los PNG de capas con la máscara ya aplicada). Tapa con el mismo blanco las rendijas del relleno que se abrían al inclinar la cabeza; es lo único que se agrega al dibujo.
 
-**Probar sin cámara:** `/?char=conejito&sim=1` entra en modo demo y reproduce un guion de 26 s con parpadeos, las tres bocas, cejas, inclinación y giro (`src/simtracking.js`). También se puede forzar cualquier valor desde la consola con `__bunny.setDebugTargets({ roll: 0.8, jawLive: 0.5, browUp: 1 })`.
+**Probar sin cámara:** `/?char=conejito&sim=1` entra en modo demo y reproduce un guion de 20 s con parpadeos, inclinación a los dos lados, giro y movimiento combinado (`src/simtracking.js`). También se puede forzar cualquier valor desde la consola con `__bunny.setDebugTargets({ roll: 0.8 })`.
 
 ## Cargar tu propio personaje (PSD)
 

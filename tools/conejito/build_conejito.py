@@ -13,12 +13,14 @@ Capas del PSD (de abajo hacia arriba) -> piezas del rig:
   cuerpo (con la cola)       -> body       quieto (respira con el cuerpo)
   cabeza                     -> head       gira / se inclina con la cabeza
   oreja_izq, oreja_der       -> ear_l/_r   con la cabeza + resorte con rebote
-  cejas                      -> brows      suben un poco con cejas/sorpresa
-  ojo_izq/der_abierto|cerrado-> eye_l/_r   parpadeo: cambio de golpe abierto/cerrado
-  boca_cerrada/media/abierta -> mouth      3 estados según cuánto abre la boca
+  ojo_izq_abierto|cerrado    -> eye_r      parpadeo: cambio de golpe abierto/cerrado (único ojo)
+
+Sin boca, sin cejas y con UN solo ojo (a pedido de Katherine): no se usan las capas cejas, boca_* ni ojo_der_*.
+El ojo que queda es 'ojo_izq': coincide con el único ojo del dibujo original (ref_conejo.png), que es el
+punto de la cara; el otro ojo lo agregó el diseño de capas.
 
 Los lados siguen la posición en pantalla (l = izquierda de la pantalla). En el PSD los
-ojos se llaman al revés que las orejas: 'ojo_der' está a la izquierda de la pantalla.
+ojos se llaman al revés que las orejas ('ojo_izq' está a la derecha del par de ojos); el ojo único va como eye_r.
 """
 import hashlib
 import json
@@ -52,8 +54,7 @@ def full(path):
     return a
 
 
-NAMES = ['cuerpo', 'cabeza', 'oreja_izq', 'oreja_der', 'cejas', 'ojo_izq_abierto', 'ojo_der_abierto',
-        'ojo_izq_cerrado', 'ojo_der_cerrado', 'boca_cerrada', 'boca_media', 'boca_abierta']
+NAMES = ['cuerpo', 'cabeza', 'oreja_izq', 'oreja_der', 'ojo_izq_abierto', 'ojo_izq_cerrado']
 IMG = {n: full(os.path.join(CAPAS, n + '.png')) for n in NAMES}
 
 # Huecos del relleno blanco. El dibujo trae el blanco de cada pieza como un polígono: en reposo encajan, pero
@@ -139,10 +140,8 @@ part('ear_l', 'oreja_izq', 'ear', 'head', EAR_L_BASE, parallax=[0, 0],
      motion=dict(EAR_MOTION, phase=0), earKick=1)
 part('ear_r', 'oreja_der', 'ear', 'head', EAR_R_BASE, parallax=[0, 0],
      motion=dict(EAR_MOTION, phase=0.25, speed=0.36), earKick=1)
-part('brows', 'cejas', 'brow', 'head', center(IMG['cejas']), parallax=[0, 0], browLift=14)
-
-# ojos: en el PSD 'ojo_der' está a la izquierda de la pantalla
-EYE = {'l': ('ojo_der_abierto', 'ojo_der_cerrado'), 'r': ('ojo_izq_abierto', 'ojo_izq_cerrado')}
+# un solo ojo: el del dibujo original ('ojo_izq')
+EYE = {'r': ('ojo_izq_abierto', 'ojo_izq_cerrado')}
 eyes = {}
 for side, (op, cl) in EYE.items():
     eo = save(f'eye_{side}_open.png', IMG[op])
@@ -152,15 +151,8 @@ for side, (op, cl) in EYE.items():
                   'parallax': [0, 0], 'psdName': [op, cl]})
     eyes[side] = {'center': c, 'styles': {'A': {'full': eo}, 'B': {'full': eo}}, 'closed': ec}
 
-# bocas: parches en el mismo lugar; cambio de golpe
-mo = {k: dict(save(f'mouth_{k}.png', IMG[f'boca_{n}']), patch=True)
-      for k, n in (('closed', 'cerrada'), ('mid', 'media'), ('open', 'abierta'))}
-mouth_c = center(IMG['boca_abierta'])
-parts.append({'id': 'mouth', 'role': 'mouth', 'parent': 'head', 'parallax': [0, 0],
-              'psdName': ['boca_cerrada', 'boca_media', 'boca_abierta']})
-
 comp = np.zeros((H, W, 4), np.float32)
-for n in ['cuerpo', 'cabeza', 'oreja_izq', 'oreja_der', 'cejas', 'ojo_izq_abierto', 'ojo_der_abierto', 'boca_cerrada']:
+for n in ['cuerpo', 'cabeza', 'oreja_izq', 'oreja_der', 'ojo_izq_abierto']:
     comp = IMG[n] + comp * (1 - IMG[n][..., 3:])
 cx0, cy0, cx1, cy1 = 150, 330, 1350, 1530
 th = cv2.resize(comp[cy0:cy1, cx0:cx1], (64, 64), interpolation=cv2.INTER_AREA)
@@ -181,21 +173,17 @@ manifest = {
     'squashBlink': False,
     'accessories': [],
     'swap': {
-        # boca de 3 estados: neutral (cerrada) -> small (media) -> a (abierta)
-        'mouth': {'on': 0.07, 'off': 0.04, 'holdMs': 70, 'drop': 0.6, 'wideOn': 0.38, 'wideOff': 0.26,
-                  'midId': 'small', 'openId': 'a', 'closedId': 'neutral'},
         'eyes': {'close': 0.55, 'open': 0.35},
     },
     'parts': parts,
-    'mouths': {'neutral': mo['closed'], 'smile': mo['closed'], 'small': mo['mid'], 'o': mo['mid'], 'a': mo['open']},
-    'mouthCenter': mouth_c,
+    'mouths': {},
     'extras': {},
     'arms': {'parts': {}, 'shoulders': {'l': rig(900, 1750), 'r': rig(1300, 1750)}, 'hasCustom': False},
     'eyes': eyes,
     'eyeStyles': ['A', 'B'],
     'pivots': {
         'neck': NECK, 'feet': FEET,
-        'eye_l': eyes['l']['center'], 'eye_r': eyes['r']['center'],
+        'eye_l': eyes['r']['center'], 'eye_r': eyes['r']['center'],
         'headTop': rig(1000, 480),
     },
     # con un margen alrededor para que al inclinarse y rebotar no toque el borde del escenario

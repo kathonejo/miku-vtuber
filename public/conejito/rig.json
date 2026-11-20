@@ -14,17 +14,6 @@
  "squashBlink": false,
  "accessories": [],
  "swap": {
-  "mouth": {
-   "on": 0.07,
-   "off": 0.04,
-   "holdMs": 70,
-   "drop": 0.6,
-   "wideOn": 0.38,
-   "wideOff": 0.26,
-   "midId": "small",
-   "openId": "a",
-   "closedId": "neutral"
-  },
   "eyes": {
    "close": 0.55,
    "open": 0.35
@@ -79,13 +68,13 @@
   },
   {
    "file": "/conejito/ear_l.png",
-   "x": 156.28,
+   "x": 130.57,
    "y": 188.58,
-   "w": 112.55,
-   "h": 85.22,
+   "w": 162.55,
+   "h": 115.59,
    "px": [
-    338,
-    256
+    488,
+    347
    ],
    "id": "ear_l",
    "role": "ear",
@@ -115,13 +104,13 @@
   },
   {
    "file": "/conejito/ear_r.png",
-   "x": 189.07,
+   "x": 158.7,
    "y": 189.39,
-   "w": 183.0,
-   "h": 142.91,
+   "w": 241.3,
+   "h": 173.28,
    "px": [
-    549,
-    429
+    724,
+    520
    ],
    "id": "ear_r",
    "role": "ear",
@@ -150,50 +139,6 @@
    "earKick": 1
   },
   {
-   "file": "/conejito/brows.png",
-   "x": 91.5,
-   "y": 300.12,
-   "w": 83.6,
-   "h": 19.03,
-   "px": [
-    251,
-    57
-   ],
-   "id": "brows",
-   "role": "brow",
-   "parent": "head",
-   "pivot": [
-    133.84,
-    309.21
-   ],
-   "psdName": [
-    "cejas"
-   ],
-   "parallax": [
-    0,
-    0
-   ],
-   "browLift": 14
-  },
-  {
-   "id": "eye_l",
-   "role": "eye",
-   "parent": "head",
-   "side": "l",
-   "pivot": [
-    110.03,
-    346.15
-   ],
-   "parallax": [
-    0,
-    0
-   ],
-   "psdName": [
-    "ojo_der_abierto",
-    "ojo_der_cerrado"
-   ]
-  },
-  {
    "id": "eye_r",
    "role": "eye",
    "parent": "head",
@@ -210,88 +155,9 @@
     "ojo_izq_abierto",
     "ojo_izq_cerrado"
    ]
-  },
-  {
-   "id": "mouth",
-   "role": "mouth",
-   "parent": "head",
-   "parallax": [
-    0,
-    0
-   ],
-   "psdName": [
-    "boca_cerrada",
-    "boca_media",
-    "boca_abierta"
-   ]
   }
  ],
- "mouths": {
-  "neutral": {
-   "file": "/conejito/mouth_closed.png",
-   "x": 104.66,
-   "y": 390.2,
-   "w": 43.93,
-   "h": 16.19,
-   "px": [
-    132,
-    49
-   ],
-   "patch": true
-  },
-  "smile": {
-   "file": "/conejito/mouth_closed.png",
-   "x": 104.66,
-   "y": 390.2,
-   "w": 43.93,
-   "h": 16.19,
-   "px": [
-    132,
-    49
-   ],
-   "patch": true
-  },
-  "small": {
-   "file": "/conejito/mouth_mid.png",
-   "x": 108.91,
-   "y": 382.71,
-   "w": 34.82,
-   "h": 27.33,
-   "px": [
-    104,
-    82
-   ],
-   "patch": true
-  },
-  "o": {
-   "file": "/conejito/mouth_mid.png",
-   "x": 108.91,
-   "y": 382.71,
-   "w": 34.82,
-   "h": 27.33,
-   "px": [
-    104,
-    82
-   ],
-   "patch": true
-  },
-  "a": {
-   "file": "/conejito/mouth_open.png",
-   "x": 104.66,
-   "y": 379.68,
-   "w": 43.52,
-   "h": 36.84,
-   "px": [
-    131,
-    111
-   ],
-   "patch": true
-  }
- },
- "mouthCenter": [
-  126.27,
-  398.05
- ],
+ "mouths": {},
  "extras": {},
  "arms": {
   "parts": {},
@@ -308,52 +174,6 @@
   "hasCustom": false
  },
  "eyes": {
-  "l": {
-   "center": [
-    110.03,
-    346.15
-   ],
-   "styles": {
-    "A": {
-     "full": {
-      "file": "/conejito/eye_l_open.png",
-      "x": 91.9,
-      "y": 327.65,
-      "w": 36.84,
-      "h": 37.25,
-      "px": [
-       111,
-       112
-      ]
-     }
-    },
-    "B": {
-     "full": {
-      "file": "/conejito/eye_l_open.png",
-      "x": 91.9,
-      "y": 327.65,
-      "w": 36.84,
-      "h": 37.25,
-      "px": [
-       111,
-       112
-      ]
-     }
-    }
-   },
-   "closed": {
-    "file": "/conejito/eye_l_closed.png",
-    "x": 86.84,
-    "y": 339.19,
-    "w": 46.15,
-    "h": 18.02,
-    "px": [
-     138,
-     54
-    ],
-    "patch": true
-   }
-  },
   "r": {
    "center": [
     153.54,
@@ -415,8 +235,8 @@
    513.28
   ],
   "eye_l": [
-   110.03,
-   346.15
+   153.54,
+   353.23
   ],
   "eye_r": [
    153.54,
@@ -438,11 +258,8 @@
   "head",
   "ear_l",
   "ear_r",
-  "brows",
-  "eye_l",
-  "eye_r",
-  "mouth"
+  "eye_r"
  ],
- "build": "1956cde116eb",
- "art": "6b573674b519"
+ "build": "8d96f4b41b8f",
+ "art": "af391be6d4c4"
 }

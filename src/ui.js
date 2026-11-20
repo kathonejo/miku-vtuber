@@ -47,7 +47,6 @@ function coerceDebug(obj) {
     funnel: n('funnel'),
     pucker: n('pucker'),
     smile: n('smile'),
-    browUp: n('browUp'),
     wristUp: n('wristUp'),
     heartRot: 0,
     shoulderTilt: 0,

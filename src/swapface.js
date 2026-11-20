@@ -17,7 +17,7 @@
 import { clamp, finite } from './filters.js';
 
 export const SWAP_DEFAULTS = {
-  mouth: { on: 0.07, off: 0.04, holdMs: 70, drop: 0.6, minDrop: 0.03, rise: 0.03, wideOn: 0.38, wideOff: 0.26 },
+  mouth: { on: 0.07, off: 0.04, holdMs: 70, drop: 0.6, minDrop: 0.03, rise: 0.03 },
   eyes: { close: 0.55, open: 0.35, closedRef: 0.75, minSpan: 0.22 },
 };
 
@@ -40,10 +40,6 @@ export function normalizeSwap(json) {
       drop: clamp(num(mo.drop, d.mouth.drop), 0.1, 0.95),
       minDrop: clamp(num(mo.minDrop, d.mouth.minDrop), 0, 0.5),
       rise: clamp(num(mo.rise, d.mouth.rise), 0, 0.5),
-      // boca de tres estados (opcional): cerrada -> midId (media) -> openId (abierta del todo)
-      midId: typeof mo.midId === 'string' ? mo.midId : null,
-      wideOn: clamp(num(mo.wideOn, d.mouth.wideOn), 0.05, 1.5),
-      wideOff: clamp(num(mo.wideOff, d.mouth.wideOff), 0.02, 1.5),
       openId: typeof mo.openId === 'string' ? mo.openId : 'a',
       closedId: typeof mo.closedId === 'string' ? mo.closedId : 'neutral',
     },
